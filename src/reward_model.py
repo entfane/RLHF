@@ -18,5 +18,4 @@ class RewardModel:
         inputs = self.tokenizer(inputs, return_tensors="pt", padding = True).to(self.model.device)
         with torch.no_grad():
             score = self.model(**inputs)
-            print(score.logits)
         return score.logits[0][0]
