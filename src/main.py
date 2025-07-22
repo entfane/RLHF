@@ -1,5 +1,4 @@
 from transformers import AutoModelForCausalLM, AutoTokenizer
-import torch
 
 from reward_model import RewardModel
 
