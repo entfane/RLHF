@@ -20,8 +20,8 @@ class OfflinePolicy:
         for prompt, completion in input:
             chat_formatted_prompt_completion = [{'role': 'user', 'content': prompt},
                                                 {'role': 'assistant', 'content': completion}]
-            formatted_inputs.append(self.tokenizer.apply_chat_template(chat_formatted_prompt_completion), tokenize = False)
-        input = self.tokenizer(formatted_inputs, return_tensors = "pt")
+            formatted_inputs.append(self.tokenizer.apply_chat_template(chat_formatted_prompt_completion, tokenize = False))
+        input = self.tokenizer(formatted_inputs, return_tensors = "pt", padding = True)
         lm_logits, _, value = self.model(**input)
         return lm_logits, value
 
