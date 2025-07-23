@@ -25,11 +25,3 @@ class OfflinePolicy:
         lm_logits, _, value = self.model(**input)
         return lm_logits, value
 
-
-
-
-# input = [{'role': 'user', 'content': 'Hey, how are you?'}, {'role': 'assistant', 'content': 'I am good'}]
-# input = tokenizer.apply_chat_template(input, tokenize = False)
-# input = tokenizer(input, return_tensors = "pt")
-# lm_logits, _, value = model(**input)
-# print(value)
