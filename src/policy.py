@@ -16,7 +16,17 @@ class OfflinePolicy:
             if not VALUE_HEAD_NAME in name:
                 param.requires_grad = False
 
-    def generate(self, input: List[Tuple[str, str]]):
+    def generate(self, inputs: List[str]):
+        formatted_inputs = []
+        for prompt in inputs:
+            chat_formatted_prompt_completion = [{'role': 'user', 'content': prompt}]
+            chat_formatted_prompt_completion = self.tokenizer.apply_chat_template(chat_formatted_prompt_completion, tokenize = False)
+            formatted_inputs.append(chat_formatted_prompt_completion)
+        input = self.tokenizer(formatted_inputs, return_tensors = "pt", padding = True, padding_side = 'left')
+        output = self.model.generate(**input, max_new_tokens=10, do_sample=True, top_p=0.95)
+        return self.tokenizer.batch_decode(output)
+
+    def generate_logits_and_values(self, input: List[Tuple[str, str]]):
         formatted_inputs = []
         for prompt, completion in input:
             chat_formatted_prompt_completion = [{'role': 'user', 'content': prompt},
