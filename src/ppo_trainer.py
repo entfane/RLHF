@@ -4,7 +4,7 @@ from policy import OfflinePolicy
 
 class PPOTrainer:
 
-    def __init__(self, offline_policy):
+    def __init__(self, offline_policy: OfflinePolicy):
         self.offline_policy = offline_policy
 
 
