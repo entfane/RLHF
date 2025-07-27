@@ -23,8 +23,8 @@ class OfflinePolicy:
             chat_formatted_prompt_completion = self.tokenizer.apply_chat_template(chat_formatted_prompt_completion, tokenize = False)
             formatted_inputs.append(chat_formatted_prompt_completion)
         input = self.tokenizer(formatted_inputs, return_tensors = "pt", padding = True, padding_side = 'left')
-        output = self.model.generate(**input, max_new_tokens=10, do_sample=True, top_p=0.95, num_return_sequences = num_completions_per_prompt)
-        return self.tokenizer.batch_decode(output)
+        output = self.model.generate(**input, max_new_tokens=100, do_sample=True, top_p=0.95, num_return_sequences = num_completions_per_prompt)
+        return output
 
     def generate_logits_and_values(self, input: List[Tuple[str, str]]):
         formatted_inputs = []
