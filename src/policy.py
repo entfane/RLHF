@@ -16,7 +16,7 @@ class OfflinePolicy:
             if not VALUE_HEAD_NAME in name:
                 param.requires_grad = False
 
-    def generate(self, inputs: List[str], num_completions_per_prompt: int = 2):
+    def generate(self, inputs: List[str], num_completions_per_prompt: int = 1):
         formatted_inputs = []
         for prompt in inputs:
             chat_formatted_prompt_completion = [{'role': 'user', 'content': prompt}]
