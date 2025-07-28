@@ -1,10 +1,10 @@
 from typing import List
 
-from policy import OfflinePolicy
+from policy import Policy
 
 class PPOTrainer:
 
-    def __init__(self, offline_policy: OfflinePolicy):
+    def __init__(self, offline_policy: Policy):
         self.offline_policy = offline_policy
 
 
