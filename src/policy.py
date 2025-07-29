@@ -1,6 +1,6 @@
 from trl import AutoModelForCausalLMWithValueHead
 from transformers import AutoTokenizer
-from typing import List, Tuple
+from typing import List
 
 class Policy:
 
@@ -9,7 +9,7 @@ class Policy:
         self.tokenizer = AutoTokenizer.from_pretrained(model_name)
 
     def freeze_params(self):
-        for name, param in self.model.named_parameters():
+        for _, param in self.model.named_parameters():
             param.requires_grad = False
 
     def generate(self, inputs: List[str], num_completions_per_prompt: int = 1, max_tokens_to_generate: int = 100):
