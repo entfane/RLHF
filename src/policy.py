@@ -16,10 +16,12 @@ class Policy:
         formatted_inputs = []
         for prompt in inputs:
             chat_formatted_prompt_completion = [{'role': 'user', 'content': prompt}]
-            chat_formatted_prompt_completion = self.tokenizer.apply_chat_template(chat_formatted_prompt_completion, tokenize = False)
+            chat_formatted_prompt_completion = self.tokenizer.apply_chat_template(chat_formatted_prompt_completion,
+                                                                                  tokenize = False, add_generation_prompt = True,
+                                                                                  enable_thinking = False)
             formatted_inputs.append(chat_formatted_prompt_completion)
         input = self.tokenizer(formatted_inputs, return_tensors = "pt", padding = True, padding_side = 'left')
-        output = self.model.generate(**input, max_new_tokens=100, do_sample=True,
+        output = self.model.generate(**input, max_new_tokens=max_tokens_to_generate, do_sample=True,
                                      top_p=0.95, num_return_sequences = num_completions_per_prompt)
         return self.tokenizer.batch_decode(output)
 
