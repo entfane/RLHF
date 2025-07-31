@@ -7,6 +7,6 @@ The process involves training a reward model to evaluate outputs based on human 
 
 - <b>🏅Reward Model</b>: Trained to distinguish between preferred and less preferred responses.
 
-- <b>🧠Policy Model</b>: Fine-tuned using reinforcement learning (e.g., PPO) to maximize the reward model's score.
+- <b>🧠Policy Model</b>: Fine-tuned using Proximal Policy Optimization to maximize the reward model's score.
 
 This implementation serves as a foundation for experiments and further research into scalable alignment methods and preference modeling for large language models. 📚🧪
