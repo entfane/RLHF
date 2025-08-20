@@ -4,6 +4,7 @@ from datasets import load_dataset
 from reward_model import RewardModel
 import torch
 
+# TODO
 def separate_prompt_and_completions(input: str, assistant_token: str):
     pass
 
