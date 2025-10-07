@@ -9,8 +9,8 @@ def separate_prompt_and_completions(input: str, assistant_token: str):
     pass
 
 if __name__ == "__main__":
-    offline_policy = Policy("Qwen/Qwen3-0.6B")
-    online_policy = Policy("Qwen/Qwen3-0.6B")
+    offline_policy = Policy("distilbert/distilgpt2")
+    online_policy = Policy("distilbert/distilgpt2")
     reward_model = RewardModel("Skywork/Skywork-Reward-V2-Qwen3-0.6B")
     offline_policy.freeze_params()
     trainer = PPOTrainer(offline_policy)
