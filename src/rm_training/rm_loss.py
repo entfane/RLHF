@@ -1,6 +1,15 @@
+import torch.nn as nn
 import torch
 
-def rm_loss(good, bad):
-    output = -torch.log(torch.sigmoid(good - bad))
-    output = output.mean()
-    return output
+class RMLoss(nn.Module):
+
+    def forward(self, good, bad):
+        """
+        Runs the forward pass.
+        """
+        output = -torch.log(torch.sigmoid(good - bad))
+        output = output.mean()
+        
+        return output
+
+    
