@@ -3,6 +3,7 @@ from datasets import load_dataset
 from torch.utils.data import DataLoader
 import torch
 from tqdm import tqdm
+import wandb
 
 
 from rm_loss import RMLoss
@@ -20,7 +21,11 @@ def freeze_non_head_layers(model):
     model.classifier.weight.requires_grad = True
     model.classifier.bias.requires_grad = True
 
-freeze_non_head_layers()
+freeze_non_head_layers(model)
+
+for param in model.parameters():
+    if param.requires_grad:
+        print(param)
 
 dataset = load_dataset("HumanLLMs/Human-Like-DPO-Dataset", split = "train")
 
@@ -32,6 +37,15 @@ def tokenize(example):
 
 dataset = dataset.map(tokenize).remove_columns(['prompt', 'chosen', 'rejected'])
 
+wandb.init(
+    project="rm_human_like",
+    name=f"experiment_1",
+    config={
+    "learning_rate": 0.0001,
+    "architecture": "CNN",
+    "dataset": "HumanLLMs/Human-Like-DPO-Dataset",
+    "epochs": 1,
+})
 
 dataloader = DataLoader(dataset, batch_size=4)
 
@@ -39,16 +53,19 @@ criterion = RMLoss()
 optimizer = torch.optim.Adam(model.parameters(), lr = 1e-4, betas = [0.8, 0.99])
 for epoch in range(1):
     for batch in tqdm(dataloader):
-        input_good = tokenizer(batch['good'], return_tensors = "pt", padding = "max_length", max_length=512, padding_side = "left", truncate = True).to(model.device)
-        input_bad = tokenizer(batch['bad'], return_tensors = "pt", padding = "max_length", max_length=512, padding_side = "left", truncate = True).to(model.device)
+        input_good = tokenizer(batch['good'], return_tensors = "pt", padding = "max_length", max_length=512, padding_side = "left", truncation = True).to(model.device)
+        input_bad = tokenizer(batch['bad'], return_tensors = "pt", padding = "max_length", max_length=512, padding_side = "left", truncation = True).to(model.device)
         output_good = model(**input_good).logits
         output_bad = model(**input_bad).logits
         loss = criterion(output_good, output_bad)
-        print(f"Epoch {epoch} loss: {loss.item()}")
+        wandb.log({"loss": loss.item()})
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
     torch.save(model.state_dict(), f"./saves/model{epoch}.pt")
+
+wandb.finish()
+
 
 
 
