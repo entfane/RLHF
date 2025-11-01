@@ -9,8 +9,8 @@ def separate_prompt_and_completions(input: str, assistant_token: str):
     pass
 
 if __name__ == "__main__":
-    offline_policy = Policy("distilbert/distilgpt2")
-    online_policy = Policy("distilbert/distilgpt2")
+    offline_policy = Policy("HuggingFaceTB/SmolLM2-135M-Instruct")
+    online_policy = Policy("HuggingFaceTB/SmolLM2-135M-Instruct")
     reward_model = RewardModel("Skywork/Skywork-Reward-V2-Qwen3-0.6B")
     offline_policy.freeze_params()
     trainer = PPOTrainer(offline_policy)
@@ -24,7 +24,6 @@ if __name__ == "__main__":
     chat_formatted_prompt_completion = offline_policy.tokenizer.apply_chat_template(chat_formatted_prompt_completion,
                                                                                     tokenize = True,
                                                                                     add_generation_prompt = True)
-    print(chat_formatted_prompt_completion)
-    # print(offline_policy.tokenizer.encode(prefix))
-    print(torch.isin(torch.tensor(offline_policy.tokenizer(trajectories[0])['input_ids']), torch.tensor(chat_formatted_prompt_completion)))
-    # print(trajectories[0])
+    print(torch.tensor(offline_policy.tokenizer(trajectories[0])['input_ids']))
+    print("########")
+    print(torch.tensor(offline_policy.tokenizer(trajectories[0])['input_ids'])[torch.tensor(chat_formatted_prompt_completion).size(0):])
