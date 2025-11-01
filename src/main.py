@@ -12,6 +12,12 @@ def get_completions_only(trajectories, prompts, tokenizer):
         completion = trajectory.replace(prompt, "")
         completions.append(completion)
     return completions
+
+def get_completion_only_values(completions, values):
+    output = []
+    _, T = completions.shape
+    output = values[:, -T:]
+    return output
     
 
 if __name__ == "__main__":
@@ -26,5 +32,8 @@ if __name__ == "__main__":
     offline_logits, _ = offline_policy.generate_logits_and_values(trajectories)
     online_logits, values = online_policy.generate_logits_and_values(trajectories)
     completions_only = get_completions_only(trajectories, prompts, offline_policy.tokenizer)
-    tokenized_completions = offline_policy.tokenizer(completions_only, return_tensors = "pt", padding = True)
+    tokenized_completions = offline_policy.tokenizer(completions_only, return_tensors = "pt", padding = True, padding_side = 'left')['input_ids']
+    completion_values = get_completion_only_values(tokenized_completions, values)
+    completion_values = completion_values * torch.where(tokenized_completions == offline_policy.tokenizer.pad_token_id, 0, tokenized_completions)
+
 
