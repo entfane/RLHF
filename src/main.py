@@ -27,5 +27,4 @@ if __name__ == "__main__":
     online_logits, values = online_policy.generate_logits_and_values(trajectories)
     completions_only = get_completions_only(trajectories, prompts, offline_policy.tokenizer)
     tokenized_completions = offline_policy.tokenizer(completions_only, return_tensors = "pt", padding = True)
-    print(tokenized_completions)
 
