@@ -13,4 +13,5 @@ if __name__ == "__main__":
     trainer = PPOTrainer(policy, tokenizer)
     inputs = ["how are you?", "How old are you? How is your life going?"]
     batches = trainer.create_chat_batch_from_prompts(inputs)
-    outputs = trainer.rollout(batches)
+    outputs = trainer.rollout(batches, max_new_tokens=128)
+    print(trainer.get_completion_only_values(batches, outputs))
