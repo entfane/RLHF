@@ -40,7 +40,7 @@ class PPOTrainer:
         :param output: batch of full completions - including padding, prompt and completions
         """
         _, _, values = self.policy(output)
-        values = self._zero_out_input(input, values)
+        values = self._zero_out_input(input, output, values)
         return values
     
     def get_completion_only_logits(self, input, output):
@@ -51,10 +51,10 @@ class PPOTrainer:
         :param output: batch of full completions - including padding, prompt and completions
         """
         logits, _, _ = self.policy(output)
-        logits = self._zero_out_input(input, logits)
+        logits = self._zero_out_input(input, output, logits)
         return logits
     
-    def _zero_out_input(self, input, output):
+    def _zero_out_input(self, input, completion, output):
         """
         Zeroes out input part of the full output tensor, which includes padding, prompt and completion
         
@@ -64,4 +64,7 @@ class PPOTrainer:
         padded_input = self.tokenizer(input, padding = 'longest', padding_side = "left", return_tensors = "pt")["input_ids"]
         _, T = padded_input.shape
         output[:, :T] = 0
+        keep_mask = (completion != self.tokenizer.eos_token_id) & (completion != self.tokenizer.pad_token_id)
+        zero_tensor = torch.zeros_like(completion)
+        output = torch.where(keep_mask, output, zero_tensor)
         return output
