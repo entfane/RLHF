@@ -31,3 +31,37 @@ class PPOTrainer:
         tokenized_inputs = self.tokenizer(inputs, padding = 'longest', padding_side = "left", return_tensors = "pt")
         outputs = self.policy.generate(**tokenized_inputs, max_new_tokens = max_new_tokens)
         return outputs
+
+    def get_completion_only_values(self, input, output):
+        """
+        Returns a zeroed out tensor of values only for the completion tokens, having 0 for all the input and padding tokens
+        
+        :param input: batch of chat formatted inputs
+        :param output: batch of full completions - including padding, prompt and completions
+        """
+        _, _, values = self.policy(output)
+        values = self._zero_out_input(input, values)
+        return values
+    
+    def get_completion_only_logits(self, input, output):
+        """
+        Returns a zeroed out tensor of logits only for the completion tokens, having 0 for all the input and padding tokens
+        
+        :param input: batch of chat formatted inputs
+        :param output: batch of full completions - including padding, prompt and completions
+        """
+        logits, _, _ = self.policy(output)
+        logits = self._zero_out_input(input, logits)
+        return logits
+    
+    def _zero_out_input(self, input, output):
+        """
+        Zeroes out input part of the full output tensor, which includes padding, prompt and completion
+        
+        :param input: batch of chat formatted inputs
+        :param output: either values or logits of the full generation (padding, prompt and completion)
+        """
+        padded_input = self.tokenizer(input, padding = 'longest', padding_side = "left", return_tensors = "pt")["input_ids"]
+        _, T = padded_input.shape
+        output[:, :T] = 0
+        return output
