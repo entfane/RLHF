@@ -3,9 +3,10 @@ import torch
 
 class PPOTrainer:
 
-    def __init__(self, policy, tokenizer):
+    def __init__(self, policy, tokenizer, reward_model):
         self.policy = policy
         self.tokenizer = tokenizer
+        self.reward_model = reward_model
 
     def create_chat_batch_from_prompts(self, prompts: List[str]):
         """
@@ -64,6 +65,16 @@ class PPOTrainer:
         _, T = input.shape
         decoded_completions = self.tokenizer.batch_decode(completion[:, T:], skip_special_tokens = True)
         return decoded_completions
+    
+    def get_reward(self, inputs, outputs):
+        """
+
+        :param self: Description
+        :param inputs: Description
+        :param outputs: Description
+        """
+        rm_input = zip(inputs, outputs)
+        return self.reward_model.get_reward(rm_input)
 
     
     def _zero_out_input(self, input, completion, output):
