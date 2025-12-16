@@ -1,5 +1,6 @@
 from typing import List
 import torch
+import torch.nn.functional as F
 
 class PPOTrainer:
 
@@ -52,7 +53,11 @@ class PPOTrainer:
         :param output: batch of full completions - including padding, prompt and completions
         """
         logits, _, _ = self.policy(output)
-        logits = self._zero_out_input(input, output, logits)
+
+        log_probs = F.log_softmax(logits, dim = -1)
+        target_log_probs = torch.gather(log_probs, dim = -1, index = output.unsqueeze(-1)).squeeze(-1)
+
+        logits = self._zero_out_input(input, output, target_log_probs)
         return logits
 
     def get_completion_decoded(self, input, completion):
@@ -112,4 +117,15 @@ class PPOTrainer:
         masked_idx = mask * (idxs)
         last_idx = masked_idx.argmax(dim=1)
         return last_idx
+
+    def get_logits_rewards_values(self, batch, completions):
+        tokenized_inputs = self.tokenizer(batch, padding = 'longest', padding_side = "left", return_tensors = "pt")["input_ids"]
+        _, T = tokenized_inputs.shape
+        completions_only = self.tokenizer.batch_decode(completions[:, T:], skip_special_tokens = True)
+        rewards = self.reward_model.get_reward(zip(batch, completions_only))
+        logits = self.get_completion_only_logits(batch, completions)
+        values = self.get_completion_only_values(batch, completions)
+        return rewards, logits, values
+        
+
 
