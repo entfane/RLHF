@@ -16,8 +16,11 @@ if __name__ == "__main__":
     tokenized_inputs = tokenizer(batches, padding = 'longest', padding_side = "left", return_tensors = "pt")["input_ids"]
     _, T = tokenized_inputs.shape
     outputs = trainer.rollout(batches, max_new_tokens=128)
-    completions_only = tokenizer.batch_decode(outputs[:, T:], skip_special_tokens = True)
-    # print(completions_only)
-    rewards = trainer.reward_model.get_reward(zip(inputs, completions_only))
-    print(trainer.get_completion_only_rewards(batches, outputs, rewards))
-    print(trainer.get_completion_only_values(batches, outputs))
+    print(outputs)
+    # completions_only = tokenizer.batch_decode(outputs[:, T:], skip_special_tokens = True)
+    # # print(completions_only)
+    # rewards = trainer.reward_model.get_reward(zip(inputs, completions_only))
+    # print(trainer.get_completion_only_logits(batches, outputs))
+    # print(trainer.get_completion_only_rewards(batches, outputs, rewards))
+    # print(trainer.get_completion_only_values(batches, outputs))
+    print(trainer.get_logits_rewards_values(batches, outputs))
