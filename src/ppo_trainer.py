@@ -53,6 +53,18 @@ class PPOTrainer:
         logits, _, _ = self.policy(output)
         logits = self._zero_out_input(input, output, logits)
         return logits
+
+    def get_completion_decoded(self, input, completion):
+        """
+        Returns decoded completions only
+        
+        :param input: chat formatted and tokenized input batch
+        :param completion: chat formatted completion batch, includes both prompt and completion
+        """
+        _, T = input.shape
+        decoded_completions = self.tokenizer.batch_decode(completion[:, T:], skip_special_tokens = True)
+        return decoded_completions
+
     
     def _zero_out_input(self, input, completion, output):
         """
