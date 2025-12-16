@@ -56,7 +56,7 @@ class PPOTrainer:
     
     def _zero_out_input(self, input, completion, output):
         """
-        Zeroes out input part of the full output tensor, which includes padding, prompt and completion
+        Zeroes out input part and padding of the full output tensor, which includes padding, prompt and completion
         
         :param input: batch of chat formatted inputs
         :param output: either values or logits of the full generation (padding, prompt and completion)
@@ -68,3 +68,17 @@ class PPOTrainer:
         zero_tensor = torch.zeros_like(completion)
         output = torch.where(keep_mask, output, zero_tensor)
         return output
+    
+    def _get_last_token_idx(self, completion):
+        """
+        Returns a Tensor of last token index.
+        
+        :param completion: A batch of completions only, with zeroed out paddings, prompt and eos tokens
+        """
+        mask = (completion != torch.zeros_like(completion))
+        _, T = completion.shape
+        idxs = torch.arange(T)
+        masked_idx = mask * (idxs)
+        last_idx = masked_idx.argmax(dim=1)
+        return last_idx
+
