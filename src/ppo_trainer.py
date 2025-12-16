@@ -9,11 +9,14 @@ class PPOTrainer:
         self.tokenizer = tokenizer
         self.reward_model = reward_model
 
-    def create_chat_batch_from_prompts(self, prompts: List[str]):
+    def create_chat_batch_from_prompts(self, prompts: List[str]) -> List[str]:
         """
-        Generates chat formated prompts from simple prompts
+        Generates a list of chat formatted inputs
+
         :param prompts: List of prompts
         :type prompts: List[str]
+        :return: List of chat formatted inputs
+        :rtype: List[str]
         """
         chat_formatted_prompts = []
         for prompt in prompts:
@@ -24,33 +27,46 @@ class PPOTrainer:
             chat_formatted_prompts.append(chat_formatted_prompt)
         return chat_formatted_prompts
 
-    def rollout(self, inputs, max_new_tokens = 10):
+    def rollout(self, inputs: List[str], max_new_tokens: int = 10) -> torch.Tensor:
         """
-        Performs rollout on input batch
+        Performs a rollout for the batched inputs. Generates completions
         
-        :param inputs: List of chat formatted inputs
+        :param inputs: Batch of chat formatted inputs
+        :type inputs: List[str]
+        :param max_new_tokens: Max new tokens to generate
+        :type max_new_tokens: int
+        :return: A tensor of full completions consisting of padding, input and output
+        :rtype: Tensor
         """
         tokenized_inputs = self.tokenizer(inputs, padding = 'longest', padding_side = "left", return_tensors = "pt")
         outputs = self.policy.generate(**tokenized_inputs, max_new_tokens = max_new_tokens)
         return outputs
 
-    def get_completion_only_values(self, input, output):
+    def get_completion_only_values(self, input: List[str], output: torch.Tensor) -> torch.Tensor:
         """
-        Returns a zeroed out tensor of values only for the completion tokens, having 0 for all the input and padding tokens
+        Generates values only for completions. Values for all the other tokens are set to 0
         
-        :param input: batch of chat formatted inputs
-        :param output: batch of full completions - including padding, prompt and completions
+        :param input: Batch of chat formatted inputs
+        :type input: List[str]
+        :param output: Tensor of full completions consisting of padding, input and output
+        :type output: torch.Tensor
+        :return: Tensor of values
+        :rtype: Tensor
         """
         _, _, values = self.policy(output)
         values = self._zero_out_input(input, output, values)
         return values
     
-    def get_completion_only_logits(self, input, output):
+    def get_completion_only_logits(self, input: List[str], output: torch.Tensor) -> torch.Tensor:
         """
-        Returns a zeroed out tensor of logits only for the completion tokens, having 0 for all the input and padding tokens
+        Generates logits only for the chosen tokens of the output generation. All the other states are set to 0
         
-        :param input: batch of chat formatted inputs
-        :param output: batch of full completions - including padding, prompt and completions
+        :param input: Batch of chat formatted inputs
+        :type input: List[str]
+        :param output: Tensor of full completions consisting of padding, input and output
+        :type output: torch.Tensor
+        :return: Tensor of logits for completion tokens
+        :rtype: Tensor
         """
         logits, _, _ = self.policy(output)
 
@@ -60,24 +76,33 @@ class PPOTrainer:
         logits = self._zero_out_input(input, output, target_log_probs)
         return logits
 
-    def get_completion_decoded(self, input, completion):
+    def get_completion_decoded(self, input: torch.Tensor, completion: torch.Tensor) -> List[str]:
         """
-        Returns decoded completions only
+        Returns a decoded completion only
         
-        :param input: chat formatted and tokenized input batch
-        :param completion: chat formatted completion batch, includes both prompt and completion
+        :param input: Encoded chat formatted input batch
+        :type input: torch.Tensor
+        :param completion: Tensor of full completions consisting of padding, input and output
+        :type completion: torch.Tensor
+        :return: List of completions only
+        :rtype: List[str]
         """
         _, T = input.shape
         decoded_completions = self.tokenizer.batch_decode(completion[:, T:], skip_special_tokens = True)
         return decoded_completions
     
-    def get_completion_only_rewards(self, input, output, rewards):
+    def get_completion_only_rewards(self, input: List[str], output: torch.Tensor, rewards: torch.Tensor) -> torch.Tensor:
         """
-        Returns a tensor of rewards for completion only
+        Generates rewards only for the last token of the output generation. All the other completion states are set to 1
         
-        :param input: batch of chat formatted inputs
-        :param output: tokenized output consisting of prompt, completion and paddings
-        :param rewards: tensor of rewards per every completion
+        :param input: Batch of chat formatted inputs 
+        :type input: List[str]
+        :param output: Tensor of full completions consisting of padding, input and output
+        :type output: torch.Tensor
+        :param rewards: Tensor of rewards, one per completion
+        :type rewards: torch.Tensor
+        :return: Tensor of output shape, with rewards at every completion state
+        :rtype: Tensor
         """
         reward_output = torch.ones_like(output, dtype = torch.float)
         reward_output = self._zero_out_input(input, output, reward_output)
@@ -89,13 +114,18 @@ class PPOTrainer:
         
     
     
-    def _zero_out_input(self, input, completion, output):
+    def _zero_out_input(self, input: List[str], completion: torch.Tensor, output: torch.Tensor) -> torch.Tensor:
         """
-        Zeroes out input part and padding of the full output tensor, which includes padding, prompt and completion
+        Zeroes out input part of the output and paddings
         
-        :param input: batch of chat formatted inputs
-        :param completion: full completion including prompt, completion and all the paddings
-        :param output: either values or logits of the full generation (padding, prompt and completion)
+        :param input: Batch of chat formatted inputs
+        :type input: List[str]
+        :param completion: Tensor of full completions consisting of padding, input and output
+        :type completion: torch.Tensor
+        :param output: Tensor of either logits or values for the whole completion, including padding, input and output
+        :type output: torch.Tensor
+        :return: Zeroed out output
+        :rtype: Tensor
         """
         padded_input = self.tokenizer(input, padding = 'longest', padding_side = "left", return_tensors = "pt")["input_ids"]
         _, T = padded_input.shape
@@ -105,11 +135,14 @@ class PPOTrainer:
         output = torch.where(keep_mask, output, zero_tensor)
         return output
     
-    def _get_last_token_idx(self, completion):
+    def _get_last_token_idx(self, completion: torch.Tensor) -> torch.Tensor:
         """
-        Returns a Tensor of last token index.
+        Returns a tensor of indices of last tokens for every completion. 
         
-        :param completion: A batch of completions only, with zeroed out paddings, prompt and eos tokens
+        :param completion: Tensor of full completions consisting of padding, input and output
+        :type completion: torch.Tensor
+        :return: Tensor of last indices
+        :rtype: Tensor
         """
         mask = (completion != torch.zeros_like(completion))
         _, T = completion.shape
@@ -118,14 +151,24 @@ class PPOTrainer:
         last_idx = masked_idx.argmax(dim=1)
         return last_idx
 
-    def get_logits_rewards_values(self, batch, completions):
+    def get_logits_rewards_values(self, batch: List[str], completions: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """
+        Generates logits, rewards, values for completions only
+        
+        :param batch: Batch of chat formatted inputs
+        :type batch: List[str]
+        :param completions: Tensor of full completions consisting of padding, input and output
+        :type completions: torch.Tensor
+        :return: Tuple of logits, rewards and values
+        :rtype: tuple[Tensor, Tensor, Tensor]
+        """
         tokenized_inputs = self.tokenizer(batch, padding = 'longest', padding_side = "left", return_tensors = "pt")["input_ids"]
         _, T = tokenized_inputs.shape
         completions_only = self.tokenizer.batch_decode(completions[:, T:], skip_special_tokens = True)
         rewards = self.reward_model.get_reward(zip(batch, completions_only))
         logits = self.get_completion_only_logits(batch, completions)
         values = self.get_completion_only_values(batch, completions)
-        return rewards, logits, values
+        return (logits, rewards, values)
         
 
 
