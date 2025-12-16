@@ -68,13 +68,15 @@ class PPOTrainer:
     
     def get_reward(self, inputs, outputs):
         """
+        Returns reward for the completion
 
-        :param self: Description
-        :param inputs: Description
-        :param outputs: Description
+        :param inputs: List of prompts
+        :param outputs: List of responses
         """
         rm_input = zip(inputs, outputs)
         return self.reward_model.get_reward(rm_input)
+    
+
 
     
     def _zero_out_input(self, input, completion, output):
