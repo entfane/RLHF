@@ -66,24 +66,30 @@ class PPOTrainer:
         decoded_completions = self.tokenizer.batch_decode(completion[:, T:], skip_special_tokens = True)
         return decoded_completions
     
-    def get_reward(self, inputs, outputs):
+    def get_completion_only_rewards(self, input, output, rewards):
         """
-        Returns reward for the completion
-
-        :param inputs: List of prompts
-        :param outputs: List of responses
+        Returns a tensor of rewards for completion only
+        
+        :param input: batch of chat formatted inputs
+        :param output: tokenized output consisting of prompt, completion and paddings
+        :param rewards: tensor of rewards per every completion
         """
-        rm_input = zip(inputs, outputs)
-        return self.reward_model.get_reward(rm_input)
+        reward_output = torch.ones_like(output, dtype = torch.float)
+        reward_output = self._zero_out_input(input, output, reward_output)
+        last_idx = self._get_last_token_idx(reward_output)
+        B, _ = output.shape
+        for i in range(B):
+            reward_output[i, last_idx[i]] = rewards[i]
+        return reward_output
+        
     
-
-
     
     def _zero_out_input(self, input, completion, output):
         """
         Zeroes out input part and padding of the full output tensor, which includes padding, prompt and completion
         
         :param input: batch of chat formatted inputs
+        :param completion: full completion including prompt, completion and all the paddings
         :param output: either values or logits of the full generation (padding, prompt and completion)
         """
         padded_input = self.tokenizer(input, padding = 'longest', padding_side = "left", return_tensors = "pt")["input_ids"]
