@@ -150,6 +150,23 @@ class PPOTrainer:
         masked_idx = mask * (idxs)
         last_idx = masked_idx.argmax(dim=1)
         return last_idx
+    
+    def _freeze_policy(self):
+        """
+        Freezes the policy, leaves value head trainable
+        """
+        for param in self.policy.pretrained_model.parameters():
+            param.requires_grad = False
+
+        for param in self.policy.v_head.parameters():
+            param.requires_grad = True
+
+    def _unfreeze_policy(self):
+        """
+        Unfreezes the policy
+        """
+        for param in self.policy.pretrained_model.parameters():
+            param.requires_grad = True
 
     def get_logits_rewards_values(self, batch: List[str], completions: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """
