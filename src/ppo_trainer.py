@@ -1,6 +1,7 @@
 from typing import List
 import torch
 import torch.nn.functional as F
+from datasets import Dataset
 
 class PPOTrainer:
 
@@ -186,6 +187,19 @@ class PPOTrainer:
         logits = self.get_completion_only_logits(batch, completions)
         values = self.get_completion_only_values(batch, completions)
         return (logits, rewards, values)
+    
+    def get_random_batch(self, dataset: Dataset, percentage: float) -> dict:
+        """
+        Returns a fraction of the datasets randomly shuffled
         
+        :param dataset: Dataset
+        :type dataset: Dataset
+        :param percentage: Fraction of dataset to be taken
+        :type percentage: float
+        :return: Dictionary of the dataset
+        :rtype: dict
+        """
+        return dataset.shuffle().select(range(int(percentage * len(dataset))))
+
 
 
