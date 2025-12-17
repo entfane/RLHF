@@ -200,6 +200,22 @@ class PPOTrainer:
         :rtype: dict
         """
         return dataset.shuffle().select(range(int(percentage * len(dataset))))
+    
+    def _get_mini_batches(self, batch: List[str], mini_batch_size: int) -> List[List[str]]:
+        """
+        Creates a list of mini batches from a big batch
+        
+        :param batch: Initial batch
+        :type batch: List[str]
+        :param mini_batch_size: Size of mini batches
+        :type mini_batch_size: int
+        :return: Batch of mini batches
+        :rtype: List[List[str]]
+        """
+        output = []
+        for i in range(0, len(batch), mini_batch_size):
+            mini_batch = batch[i : (i + mini_batch_size)]
+            output.append(mini_batch)
 
 
 
