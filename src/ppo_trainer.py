@@ -216,6 +216,51 @@ class PPOTrainer:
         for i in range(0, len(batch), mini_batch_size):
             mini_batch = batch[i : (i + mini_batch_size)]
             output.append(mini_batch)
+        return output
 
+    
+    
+    def train(self, iterations: int, dataset: Dataset, batch_sampling_percentage: float, mini_batch_size: int, epochs: int, max_new_tokens: int, prompt_col_name: str):
 
+        for iter in range(iterations):
 
+            # sample a batch of minibatches
+            self._freeze_policy()
+            batch = self.get_random_batch(dataset, percentage=batch_sampling_percentage)[prompt_col_name]
+            mini_batches = self._get_mini_batches(batch, mini_batch_size=mini_batch_size)
+
+            # perform a rollout on batches
+            mini_batches_chat_formatted = []
+            mini_batches_completions = []
+            for mini_batch in mini_batches:
+                chat_formatted_mini_batch = self.create_chat_batch_from_prompts(mini_batch)
+                mini_batches_chat_formatted.append(chat_formatted_mini_batch)
+                rollouts = self.rollout(chat_formatted_mini_batch, max_new_tokens=max_new_tokens)
+                mini_batches_completions.append(rollouts)
+
+            # calculate rewards, logits and values (on frozen policy)
+            mini_batches_logits, mini_batches_rewards, mini_batches_values = [], [], []
+            for (mini_batch_chat_formatted, mini_batch_completions) in zip(mini_batches_chat_formatted, mini_batches_completions):
+                (logits, rewards, values) = self.get_logits_rewards_values(mini_batch_chat_formatted, mini_batch_completions)
+                mini_batches_logits.append(logits)
+                mini_batches_rewards.append(rewards)
+                mini_batches_values.append(values)
+
+            self._unfreeze_policy()
+
+            for epoch in range(epochs):
+
+                zip_for_mini_batches = zip(mini_batches_chat_formatted, mini_batches_completions, mini_batches_logits, mini_batches_rewards, mini_batches_values)
+
+                for (mini_batch_chat_formatted, mini_batch_completions, mini_batch_logits, mini_batch_rewards, mini_batch_values) in zip_for_mini_batches:
+
+                    # calculate logits for unfrozen policy
+            
+                    # calculate kl divergence
+
+                    # update rewards, subtracting kl divergence from rewards
+
+                    # calculate the advantage for every step, using gae
+
+                    # update policy
+                    pass
