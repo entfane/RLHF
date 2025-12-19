@@ -233,7 +233,7 @@ class PPOTrainer:
         for (online_logits, offline_logits) in zip(offline_policy_logits, offline_policy_logits):
             kl_divergence.append(online_logits - offline_logits)
 
-        return kl_divergence
+        return torch.stack(kl_divergence, dim=0)
 
     
     
