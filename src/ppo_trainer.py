@@ -217,6 +217,23 @@ class PPOTrainer:
             mini_batch = batch[i : (i + mini_batch_size)]
             output.append(mini_batch)
         return output
+    
+    def calculate_kl_divergence(self, online_policy_logits: List[torch.Tensor], offline_policy_logits: List[torch.Tensor]) -> List[torch.Tensor]:
+        """
+        Calculates KL divergence for all the completion tokens between offline policy and online policy.
+        
+        :param online_policy_logits: Logits of online policy
+        :type online_policy_logits: List[torch.Tensor]
+        :param offline_policy_logits: Logits of frozen policy
+        :type offline_policy_logits: List[torch.Tensor]
+        :return: KL divergence
+        :rtype: List[Tensor]
+        """
+        kl_divergence = []
+        for (online_logits, offline_logits) in zip(offline_policy_logits, offline_policy_logits):
+            kl_divergence.append(online_logits - offline_logits)
+
+        return kl_divergence
 
     
     
@@ -255,8 +272,10 @@ class PPOTrainer:
                 for (mini_batch_chat_formatted, mini_batch_completions, mini_batch_logits, mini_batch_rewards, mini_batch_values) in zip_for_mini_batches:
 
                     # calculate logits for unfrozen policy
-            
+                    online_policy_logits = self.get_completion_only_logits(mini_batch_chat_formatted, mini_batch_completions)
+
                     # calculate kl divergence
+                    kl_divergence = self.calculate_kl_divergence(online_policy_logits, mini_batch_logits)
 
                     # update rewards, subtracting kl divergence from rewards
 
