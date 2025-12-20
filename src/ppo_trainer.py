@@ -278,6 +278,8 @@ class PPOTrainer:
                     kl_divergence = self.calculate_kl_divergence(online_policy_logits, mini_batch_logits)
 
                     # update rewards, subtracting kl divergence from rewards
+                    rewards = self.get_completion_only_rewards(mini_batch_chat_formatted, mini_batch_completions, mini_batch_rewards)
+                    print(rewards)
 
                     # calculate the advantage for every step, using gae
 
