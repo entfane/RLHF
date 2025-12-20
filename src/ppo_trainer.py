@@ -94,7 +94,7 @@ class PPOTrainer:
     
     def get_completion_only_rewards(self, input: List[str], output: torch.Tensor, rewards: torch.Tensor) -> torch.Tensor:
         """
-        Generates rewards only for the last token of the output generation. All the other completion states are set to 1
+        Generates rewards only for the last token of the output generation
         
         :param input: Batch of chat formatted inputs 
         :type input: List[str]
@@ -108,6 +108,7 @@ class PPOTrainer:
         reward_output = torch.ones_like(output, dtype = torch.float)
         reward_output = self._zero_out_input(input, output, reward_output)
         last_idx = self._get_last_token_idx(reward_output)
+        reward_output = torch.zeros_like(output, dtype = torch.float)
         B, _ = output.shape
         for i in range(B):
             reward_output[i, last_idx[i]] = rewards[i]
