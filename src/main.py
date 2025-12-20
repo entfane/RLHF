@@ -8,10 +8,10 @@ from datasets import load_dataset
     
 
 if __name__ == "__main__":
-    policy = AutoModelForCausalLMWithValueHead.from_pretrained("HuggingFaceTB/SmolLM2-135M-Instruct")
-    tokenizer = AutoTokenizer.from_pretrained("HuggingFaceTB/SmolLM2-135M-Instruct")
-    reward_model = RewardModel("Skywork/Skywork-Reward-V2-Qwen3-0.6B")
-    dataset = load_dataset("TuringEnterprises/Turing-Open-Reasoning", split = "train")
+    policy = AutoModelForCausalLMWithValueHead.from_pretrained("/home/nikita/work/smollm")
+    tokenizer = AutoTokenizer.from_pretrained("/home/nikita/work/smollm")
+    reward_model = RewardModel("/home/nikita/work/Skywork-Reward-V2-Qwen3-0.6B")
+    dataset = load_dataset("/home/nikita/work/Turing-Open-Reasoning", split = "train")
     trainer = PPOTrainer(policy, tokenizer, reward_model)
     trainer.train(iterations=1, dataset = dataset, batch_sampling_percentage=0.1, mini_batch_size=4, epochs = 1, max_new_tokens = 16, prompt_col_name="question")
 
