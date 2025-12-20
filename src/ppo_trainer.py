@@ -231,10 +231,36 @@ class PPOTrainer:
         :rtype: List[Tensor]
         """
         kl_divergence = []
-        for (online_logits, offline_logits) in zip(offline_policy_logits, offline_policy_logits):
+        for (online_logits, offline_logits) in zip(online_policy_logits, offline_policy_logits):
             kl_divergence.append(online_logits - offline_logits)
 
         return torch.stack(kl_divergence, dim=0)
+    
+    def calculate_GAE(self, rewards: torch.Tensor, values: torch.Tensor, gamma: float, lmbda: float) -> torch.Tensor:
+        """
+        Calculates GAE iteratively from the last state backwards.
+        
+        :param rewards: Tensor of rewards
+        :type rewards: torch.Tensor
+        :param values: Tensor of values
+        :type values: torch.Tensor
+        :param gamma: Gamma parameter
+        :type gamma: float
+        :param lmbda: Lambda parameter
+        :type lmbda: float
+        :return: GAE tensor
+        :rtype: Tensor
+        """
+        B, _ = rewards.shape
+        last_idx = self._get_last_token_idx(rewards)
+        advantage = torch.zeros_like(rewards, dtype=torch.float)
+        for i in range(B):
+            beta = rewards[i, last_idx[i]] - values[i, last_idx[i]]
+            advantage[i, last_idx[i]] = beta
+            for j in range(last_idx[i] - 1, 0, -1):
+                beta = rewards[i, j] + gamma * values[i, j + 1] - values[i, j]
+                advantage[i, j] = beta + lmbda * gamma * advantage[i, j + 1]
+        return advantage
 
     
     
