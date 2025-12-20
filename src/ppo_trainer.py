@@ -264,7 +264,9 @@ class PPOTrainer:
 
     
     
-    def train(self, iterations: int, dataset: Dataset, batch_sampling_percentage: float, mini_batch_size: int, epochs: int, max_new_tokens: int, prompt_col_name: str):
+    def train(self, iterations: int, dataset: Dataset, batch_sampling_percentage: float,
+              mini_batch_size: int, epochs: int, max_new_tokens: int, prompt_col_name: str,
+              gamma: float, lmbda: float):
 
         for iter in range(iterations):
 
@@ -309,6 +311,7 @@ class PPOTrainer:
                     rewards -= kl_divergence
 
                     # calculate the advantage for every step, using gae
+                    gae = self.calculate_GAE(rewards, mini_batch_values, gamma, lmbda)
 
                     # update policy
                     pass
