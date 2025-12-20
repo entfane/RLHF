@@ -266,7 +266,7 @@ class PPOTrainer:
     
     def train(self, iterations: int, dataset: Dataset, batch_sampling_percentage: float,
               mini_batch_size: int, epochs: int, max_new_tokens: int, prompt_col_name: str,
-              gamma: float, lmbda: float):
+              gamma: float, lmbda: float, epsilon: float):
 
         for iter in range(iterations):
 
@@ -312,6 +312,19 @@ class PPOTrainer:
 
                     # calculate the advantage for every step, using gae
                     gae = self.calculate_GAE(rewards, mini_batch_values, gamma, lmbda)
+
+                    # calculate clipped loss
+                    clipped_loss = torch.clamp(torch.exp(online_policy_logits - mini_batch_logits), 1 - epsilon, 1 + epsilon) * gae
+                    loss =  torch.exp(online_policy_logits - mini_batch_logits) * gae
+                    loss = torch.min(loss, clipped_loss)
+
+                    mask = (loss != 0).float()
+                    loss = -(loss.sum()) / mask.sum()
+
+                    # calculate entropy loss
+
+                    # calculate value loss
+                    
 
                     # update policy
                     pass
