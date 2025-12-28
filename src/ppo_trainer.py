@@ -310,8 +310,12 @@ class PPOTrainer:
                     rewards = self.get_completion_only_rewards(mini_batch_chat_formatted, mini_batch_completions, mini_batch_rewards)
                     rewards -= kl_divergence
 
+                    values = self.get_completion_only_values(mini_batch_chat_formatted, mini_batch_completions)
+
                     # calculate the advantage for every step, using gae
                     gae = self.calculate_GAE(rewards, mini_batch_values, gamma, lmbda)
+
+                    gae = self._zero_out_input(mini_batch_chat_formatted, mini_batch_completions, gae)
 
                     # calculate clipped loss
                     clipped_loss = torch.clamp(torch.exp(online_policy_logits - mini_batch_logits), 1 - epsilon, 1 + epsilon) * gae
@@ -324,7 +328,7 @@ class PPOTrainer:
                     # calculate entropy loss
 
                     # calculate value loss
-                    
+                    value_loss = 0.5 * (((values - (mini_batch_values + gae)) ** 2).mean())
 
                     # update policy
                     pass
