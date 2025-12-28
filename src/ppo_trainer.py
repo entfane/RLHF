@@ -60,7 +60,7 @@ class PPOTrainer:
     
     def get_completion_only_log_probs(self, input: List[str], output: torch.Tensor) -> torch.Tensor:
         """
-        Generates logits only for the chosen tokens of the output generation. All the other states are set to 0
+        Generates log probs only for the chosen tokens of the output generation. All the other states are set to 0
         
         :param input: Batch of chat formatted inputs
         :type input: List[str]
