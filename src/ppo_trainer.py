@@ -358,7 +358,7 @@ class PPOTrainer:
                     loss = -(loss.sum()) / mask.sum()
 
                     # calculate entropy loss
-                    
+                    entropy_loss = self.calculate_entropy(mini_batch_chat_formatted, mini_batch_completions)
 
                     # calculate value loss
                     value_loss = 0.5 * (((values - (mini_batch_values + gae)) ** 2).mean())
