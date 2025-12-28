@@ -2,6 +2,7 @@ from typing import List
 import torch
 import torch.nn.functional as F
 from datasets import Dataset
+from torch.distributions import Categorical
 
 class PPOTrainer:
 
@@ -262,6 +263,35 @@ class PPOTrainer:
                 advantage[i, j] = beta + lmbda * gamma * advantage[i, j + 1]
         return advantage
     
+
+    def calculate_entropy(self, input: List[str], output: torch.Tensor) -> float:
+        """
+        Calculates entropy loss for completions only.
+        
+        :param input: Batch of chat formatted inputs
+        :type input: List[str]
+        :param output: Tensor of full completions consisting of padding, input and output
+        :type output: torch.Tensor
+        :return: Entropy
+        :rtype: float
+        """
+
+        logits, _, _ = self.policy(output)
+        mask = torch.ones_like(output)
+        mask = self._zero_out_input(input, output, mask)
+        B, T, C = logits.shape
+        for i in range(B):
+            total_entropy_sum = 0
+            total_states = 0
+            for t in range(T):
+                if mask[i, t] != 0:
+                    total_states += 1
+                    distr = Categorical(logits[i, t, :])
+                    total_entropy_sum -= distr.entropy()
+            total_entropy_sum /= total_states
+        total_entropy_sum /= B
+        return total_entropy_sum
+
 
     
     
