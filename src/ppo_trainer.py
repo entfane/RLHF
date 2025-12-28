@@ -58,7 +58,7 @@ class PPOTrainer:
         values = self._zero_out_input(input, output, values)
         return values
     
-    def get_completion_only_logits(self, input: List[str], output: torch.Tensor) -> torch.Tensor:
+    def get_completion_only_log_probs(self, input: List[str], output: torch.Tensor) -> torch.Tensor:
         """
         Generates logits only for the chosen tokens of the output generation. All the other states are set to 0
         
@@ -185,7 +185,7 @@ class PPOTrainer:
         _, T = tokenized_inputs.shape
         completions_only = self.tokenizer.batch_decode(completions[:, T:], skip_special_tokens = True)
         rewards = self.reward_model.get_reward(zip(batch, completions_only))
-        logits = self.get_completion_only_logits(batch, completions)
+        logits = self.get_completion_only_log_probs(batch, completions)
         values = self.get_completion_only_values(batch, completions)
         return (logits, rewards, values)
     
@@ -261,6 +261,7 @@ class PPOTrainer:
                 beta = rewards[i, j] + gamma * values[i, j + 1] - values[i, j]
                 advantage[i, j] = beta + lmbda * gamma * advantage[i, j + 1]
         return advantage
+    
 
     
     
@@ -301,7 +302,8 @@ class PPOTrainer:
                 for (mini_batch_chat_formatted, mini_batch_completions, mini_batch_logits, mini_batch_rewards, mini_batch_values) in zip_for_mini_batches:
 
                     # calculate logits for unfrozen policy
-                    online_policy_logits = self.get_completion_only_logits(mini_batch_chat_formatted, mini_batch_completions)
+                    online_policy_logits = self.get_completion_only_log_probs(mini_batch_chat_formatted, mini_batch_completions)
+
 
                     # calculate kl divergence
                     kl_divergence = self.calculate_kl_divergence(online_policy_logits, mini_batch_logits)
@@ -326,6 +328,7 @@ class PPOTrainer:
                     loss = -(loss.sum()) / mask.sum()
 
                     # calculate entropy loss
+                    
 
                     # calculate value loss
                     value_loss = 0.5 * (((values - (mini_batch_values + gae)) ** 2).mean())
