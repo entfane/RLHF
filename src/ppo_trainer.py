@@ -298,6 +298,31 @@ class PPOTrainer:
     def train(self, iterations: int, dataset: Dataset, batch_sampling_percentage: float,
               mini_batch_size: int, epochs: int, max_new_tokens: int, prompt_col_name: str,
               gamma: float, lmbda: float, epsilon: float):
+        
+        """
+        Main RLHF training loop
+        
+        :param iterations: Number of training iterations
+        :type iterations: int
+        :param dataset: Training Dataset
+        :type dataset: Dataset
+        :param batch_sampling_percentage: Percentage of dataset to be used for training in 1 iteration
+        :type batch_sampling_percentage: float
+        :param mini_batch_size: Mini batch size
+        :type mini_batch_size: int
+        :param epochs: Number of epochs per iteration
+        :type epochs: int
+        :param max_new_tokens: Max new tokens to be generated in rollout
+        :type max_new_tokens: int
+        :param prompt_col_name: Name of the column with prompts
+        :type prompt_col_name: str
+        :param gamma: Gamma parameter in GAE
+        :type gamma: float
+        :param lmbda: Lambda parameter in GAE
+        :type lmbda: float
+        :param epsilon: PPO loss clipping epsilon
+        :type epsilon: float
+        """
 
         for iter in range(iterations):
 
@@ -324,6 +349,8 @@ class PPOTrainer:
                 mini_batches_values.append(values)
 
             self._unfreeze_policy()
+
+            optimizer = torch.optim.Adam(self.policy.parameters())
 
             for epoch in range(epochs):
 
@@ -363,5 +390,10 @@ class PPOTrainer:
                     # calculate value loss
                     value_loss = 0.5 * (((values - (mini_batch_values + gae)) ** 2).mean())
 
-                    # update policy
-                    pass
+                    total_loss = loss + value_loss - entropy_loss
+
+                    optimizer.zero_grad()
+
+                    total_loss.backward()
+
+                    optimizer.step()
