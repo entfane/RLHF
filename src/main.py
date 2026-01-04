@@ -3,9 +3,21 @@ from datasets import load_dataset
 from reward_model import RewardModel
 import torch
 from trl import AutoModelForCausalLMWithValueHead
-from transformers import AutoTokenizer
+from transformers import AutoTokenizer, HfArgumentParser
 from datasets import load_dataset
-    
+from dataclasses import dataclass, field
+
+@dataclass
+class RLHFArguments:
+    model_name: str = field(default = "none", metadata={"help": "HF Name of the model to optimize"})
+    reward_model_name: str = field(default = "none", metadata={"help": "HF Reward model name"})
+    prompt_column_name: str = field(default = "text", metadata={"help": "Name of prompt column in the dataset"})
+    dataset: str = field(default = "none", metadata={"help": "HF dataset name"})
+    iterations: int = field(default = 1, metadata={"help": "Number of iterations"})
+    batch_sampling_percentage: float = field(default = 1, metadata={"help": "Percentage of samples to be taken in a batch in a single iteration"})
+    mini_batch_size: int = field(default = 1, metadata={"help": "Mini batch size"})
+    epochs: int = field(default = 1, metadata={"help": "Number of epochs"})
+    max_new_tokens: int = field(default = 128, metadata={"help": "Maximum new tokens to be generated in rollouts"})
 
 if __name__ == "__main__":
     policy = AutoModelForCausalLMWithValueHead.from_pretrained("HuggingFaceTB/SmolLM2-135M-Instruct")
