@@ -286,7 +286,7 @@ class PPOTrainer:
             for t in range(T):
                 if mask[i, t] != 0:
                     total_states += 1
-                    distr = Categorical(logits[i, t, :])
+                    distr = Categorical(F.log_softmax(logits[i, t, :]))
                     total_entropy_sum -= distr.entropy()
             total_entropy_sum /= total_states
         total_entropy_sum /= B
