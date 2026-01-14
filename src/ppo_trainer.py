@@ -44,19 +44,16 @@ class PPOTrainer:
         outputs = self.policy.generate(**tokenized_inputs, max_new_tokens = max_new_tokens)
         return outputs
 
-    def get_completion_only_values(self, input: List[str], output: torch.Tensor) -> torch.Tensor:
+    def get_completion_values(self, completion: torch.Tensor) -> torch.Tensor:
         """
-        Generates values only for completions. Values for all the other tokens are set to 0
+        Generates values for the completion
         
-        :param input: Batch of chat formatted inputs
-        :type input: List[str]
-        :param output: Tensor of full completions consisting of padding, input and output
-        :type output: torch.Tensor
-        :return: Tensor of values
+        :param completion: A tensor of full completions consisting of padding, input and output
+        :type completion: torch.Tensor
+        :return: A tensor of values for each state
         :rtype: Tensor
         """
-        _, _, values = self.policy(output)
-        values = self._zero_out_input(input, output, values)
+        _, _, values = self.policy(completion)
         return values
     
     def get_completion_only_log_probs(self, input: List[str], output: torch.Tensor) -> torch.Tensor:
@@ -199,7 +196,7 @@ class PPOTrainer:
         :type batch: List[str]
         :param completions: Tensor of full completions consisting of padding, input and output
         :type completions: torch.Tensor
-        :return: Tuple of logits, rewards and values
+        :return: Tuple of logits, rewards and values for each state
         :rtype: tuple[Tensor, Tensor, Tensor]
         """
         tokenized_inputs = self.tokenizer(batch, padding = 'longest', padding_side = "left", return_tensors = "pt")["input_ids"]
@@ -207,7 +204,7 @@ class PPOTrainer:
         completions_only = self.tokenizer.batch_decode(completions[:, T:], skip_special_tokens = True)
         rewards = self.reward_model.get_reward(zip(batch, completions_only))
         logits = self.get_completion_only_log_probs(batch, completions)
-        values = self.get_completion_only_values(batch, completions)
+        values = self.get_completion_values(batch, completions)
         return (logits, rewards, values)
     
     def get_random_batch(self, dataset: Dataset, percentage: float) -> dict:
