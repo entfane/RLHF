@@ -46,7 +46,7 @@ class PPOTrainer:
 
     def get_completion_values(self, completion: torch.Tensor) -> torch.Tensor:
         """
-        Generates values for the completion
+        Generates values for the completions
         
         :param completion: A tensor of full completions consisting of padding, input and output
         :type completion: torch.Tensor
@@ -56,24 +56,18 @@ class PPOTrainer:
         _, _, values = self.policy(completion)
         return values
     
-    def get_completion_only_log_probs(self, input: List[str], output: torch.Tensor) -> torch.Tensor:
+    def get_completion_log_probs(self, completion: torch.Tensor) -> torch.Tensor:
         """
-        Generates log probs only for the chosen tokens of the output generation. All the other states are set to 0
+        Generates lob probabilities for the completion
         
-        :param input: Batch of chat formatted inputs
-        :type input: List[str]
-        :param output: Tensor of full completions consisting of padding, input and output
-        :type output: torch.Tensor
-        :return: Tensor of logits for completion tokens
+        :param completion: A tensor of full completions consisting of padding, input and output
+        :type completion: torch.Tensor
+        :return: A tensor of log probabilities for each state
         :rtype: Tensor
         """
-        logits, _, _ = self.policy(output)
-
+        logits, _, _ = self.policy(completion)
         log_probs = F.log_softmax(logits, dim = -1)
-        target_log_probs = torch.gather(log_probs, dim = -1, index = output.unsqueeze(-1)).squeeze(-1)
-
-        logits = self._zero_out_input(input, output, target_log_probs)
-        return logits
+        return log_probs
 
     def get_completion_decoded(self, input: torch.Tensor, completion: torch.Tensor) -> List[str]:
         """
@@ -203,8 +197,8 @@ class PPOTrainer:
         _, T = tokenized_inputs.shape
         completions_only = self.tokenizer.batch_decode(completions[:, T:], skip_special_tokens = True)
         rewards = self.reward_model.get_reward(zip(batch, completions_only))
-        logits = self.get_completion_only_log_probs(batch, completions)
-        values = self.get_completion_values(batch, completions)
+        logits = self.get_completion_log_probs(completions)
+        values = self.get_completion_values(completions)
         return (logits, rewards, values)
     
     def get_random_batch(self, dataset: Dataset, percentage: float) -> dict:
