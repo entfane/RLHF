@@ -354,19 +354,23 @@ class PPOTrainer:
             # perform a rollout on batches
             mini_batches_chat_formatted = []
             mini_batches_completions = []
+            mini_batches_output_masks = []
             for mini_batch in mini_batches:
                 chat_formatted_mini_batch = self.create_chat_batch_from_prompts(mini_batch)
                 mini_batches_chat_formatted.append(chat_formatted_mini_batch)
                 rollouts = self.rollout(chat_formatted_mini_batch, max_new_tokens=max_new_tokens)
                 mini_batches_completions.append(rollouts)
+                mini_batches_output_masks.append(self._get_output_only_mask(chat_formatted_mini_batch, rollouts))
 
             # calculate rewards, logits and values (on frozen policy)
             mini_batches_logits, mini_batches_rewards, mini_batches_values = [], [], []
-            for (mini_batch_chat_formatted, mini_batch_completions) in zip(mini_batches_chat_formatted, mini_batches_completions):
+            for (mini_batch_chat_formatted, mini_batch_completions, mini_batch_output_masks) in zip(mini_batches_chat_formatted,
+                                                                                                   mini_batches_completions,
+                                                                                                   mini_batches_output_masks):
                 (logits, rewards, values) = self.get_logits_rewards_values(mini_batch_chat_formatted, mini_batch_completions)
-                mini_batches_logits.append(logits)
-                mini_batches_rewards.append(rewards)
-                mini_batches_values.append(values)
+                mini_batches_logits.append(logits * mini_batch_output_masks)
+                mini_batches_rewards.append(rewards * mini_batch_output_masks)
+                mini_batches_values.append(values * mini_batch_output_masks)
 
             self._unfreeze_policy()
 
@@ -374,9 +378,10 @@ class PPOTrainer:
 
             for epoch in range(epochs):
 
-                zip_for_mini_batches = zip(mini_batches_chat_formatted, mini_batches_completions, mini_batches_logits, mini_batches_rewards, mini_batches_values)
+                zip_for_mini_batches = zip(mini_batches_chat_formatted, mini_batches_completions, mini_batches_logits,
+                                           mini_batches_rewards, mini_batches_values, mini_batches_output_masks)
 
-                for (mini_batch_chat_formatted, mini_batch_completions, mini_batch_logits, mini_batch_rewards, mini_batch_values) in zip_for_mini_batches:
+                for (mini_batch_chat_formatted, mini_batch_completions, mini_batch_logits, mini_batch_rewards, mini_batch_values, mini_batch_output_masks) in zip_for_mini_batches:
 
                     # calculate logits for unfrozen policy
                     online_policy_logits = self.get_completion_only_log_probs(mini_batch_chat_formatted, mini_batch_completions)
