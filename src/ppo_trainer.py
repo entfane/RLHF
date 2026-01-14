@@ -138,6 +138,26 @@ class PPOTrainer:
         output = torch.where(keep_mask, output, zero_tensor)
         return output
     
+    def _get_output_only_mask(self, input: List[str], completion: torch.Tensor) -> torch.Tensor:
+        """
+        Returns a mask for completions only. The mask represents 1's where the token in completion tensor is a rollout completion
+        token and 0 where it is input token or padding/eos token.
+        
+        :param input: Batch of chat formatted inputs
+        :type input: List[str]
+        :param completion: Tensor of full completions consisting of padding, input and output
+        :type completion: torch.Tensor
+        :return: Mask for generated completions only, with 0s for padding/eos tokens
+        :rtype: Tensor
+        """
+        output = torch.ones_like(completion)
+        padded_input = self.tokenizer(input, padding = 'longest', padding_side = "left", return_tensors = "pt")["input_ids"]
+        _, T = padded_input.shape
+        output[:, :T] = 0
+        keep_mask = (completion != self.tokenizer.eos_token_id) & (completion != self.tokenizer.pad_token_id)
+        output = torch.where(keep_mask, output, 0)
+        return output
+    
     def _get_last_token_idx(self, completion: torch.Tensor) -> torch.Tensor:
         """
         Returns a tensor of indices of last tokens for every completion. 
