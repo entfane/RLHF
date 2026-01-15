@@ -347,16 +347,18 @@ class PPOTrainer:
                 rollouts = self.rollout(chat_formatted_mini_batch, max_new_tokens=max_new_tokens)
                 mini_batches_completions.append(rollouts)
                 mini_batches_output_masks.append(self._get_output_only_mask(chat_formatted_mini_batch, rollouts))
+                break
 
             # calculate rewards, log_probs and values (on frozen policy)
             mini_batches_log_probs, mini_batches_rewards, mini_batches_values = [], [], []
-            for (mini_batch_chat_formatted, mini_batch_completions, mini_batch_output_masks) in zip(mini_batches_chat_formatted,
+            for i, (mini_batch_chat_formatted, mini_batch_completions, mini_batch_output_masks) in enumerate(zip(mini_batches_chat_formatted,
                                                                                                    mini_batches_completions,
-                                                                                                   mini_batches_output_masks):
+                                                                                                   mini_batches_output_masks)):
                 (log_probs, rewards, values) = self.get_log_probs_rewards_values(mini_batch_chat_formatted, mini_batch_completions)
                 mini_batches_log_probs.append(log_probs)
                 mini_batches_rewards.append(rewards)
-                mini_batches_values.append(values * mini_batch_output_masks)
+                mini_batches_values.append(values * mini_batches_output_masks[i])
+                break
 
             self._unfreeze_policy()
 
@@ -380,12 +382,10 @@ class PPOTrainer:
                     rewards = self.get_completion_only_rewards(mini_batch_output_masks, mini_batch_rewards)
                     rewards -= kl_divergence
 
-                    values = self.get_completion_only_values(mini_batch_chat_formatted, mini_batch_completions)
+                    online_values = self.get_completion_values(mini_batch_completions) * mini_batch_output_masks
 
                     # calculate the advantage for every step, using gae
                     gae = self.calculate_GAE(rewards, mini_batch_values, gamma, lmbda, mini_batch_output_masks)
-
-                    gae = self._zero_out_input(mini_batch_chat_formatted, mini_batch_completions, gae)
 
                     # calculate clipped loss
                     clipped_loss = torch.clamp(torch.exp(online_policy_log_probs - mini_batch_log_probs), 1 - epsilon, 1 + epsilon) * gae
