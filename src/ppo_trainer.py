@@ -391,9 +391,8 @@ class PPOTrainer:
                     clipped_loss = torch.clamp(torch.exp(online_policy_log_probs - mini_batch_log_probs), 1 - epsilon, 1 + epsilon) * gae
                     loss =  torch.exp(online_policy_log_probs - mini_batch_log_probs) * gae
                     loss = torch.min(loss, clipped_loss)
-
-                    mask = (loss != 0).float()
-                    loss = -(loss.sum()) / mask.sum()
+                    
+                    loss = -(loss.sum()) / mini_batch_output_masks.sum()
 
                     # calculate entropy loss
                     entropy_loss = self.calculate_entropy(mini_batch_chat_formatted, mini_batch_completions)
