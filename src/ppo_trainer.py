@@ -116,7 +116,7 @@ class PPOTrainer:
         :type input: List[str]
         :param completion: Tensor of full completions consisting of padding, input and output
         :type completion: torch.Tensor
-        :param output: Tensor of either logits or values for the whole completion, including padding, input and output
+        :param output: Tensor of either log_probs or values for the whole completion, including padding, input and output
         :type output: torch.Tensor
         :return: Zeroed out output
         :rtype: Tensor
@@ -353,13 +353,13 @@ class PPOTrainer:
                 mini_batches_completions.append(rollouts)
                 mini_batches_output_masks.append(self._get_output_only_mask(chat_formatted_mini_batch, rollouts))
 
-            # calculate rewards, logits and values (on frozen policy)
+            # calculate rewards, log_probs and values (on frozen policy)
             mini_batches_log_probs, mini_batches_rewards, mini_batches_values = [], [], []
             for (mini_batch_chat_formatted, mini_batch_completions, mini_batch_output_masks) in zip(mini_batches_chat_formatted,
                                                                                                    mini_batches_completions,
                                                                                                    mini_batches_output_masks):
-                (logits, rewards, values) = self.get_log_probs_rewards_values(mini_batch_chat_formatted, mini_batch_completions)
-                mini_batches_log_probs.append(logits)
+                (log_probs, rewards, values) = self.get_log_probs_rewards_values(mini_batch_chat_formatted, mini_batch_completions)
+                mini_batches_log_probs.append(log_probs)
                 mini_batches_rewards.append(rewards)
                 mini_batches_values.append(values * mini_batch_output_masks)
 
@@ -372,14 +372,15 @@ class PPOTrainer:
                 zip_for_mini_batches = zip(mini_batches_chat_formatted, mini_batches_completions, mini_batches_log_probs,
                                            mini_batches_rewards, mini_batches_values, mini_batches_output_masks)
 
-                for (mini_batch_chat_formatted, mini_batch_completions, mini_batch_logits, mini_batch_rewards, mini_batch_values, mini_batch_output_masks) in zip_for_mini_batches:
+                for (mini_batch_chat_formatted, mini_batch_completions, mini_batch_log_probs, mini_batch_rewards, mini_batch_values, mini_batch_output_masks) in zip_for_mini_batches:
 
-                    # calculate logits for unfrozen policy
-                    online_policy_logits = self.get_completion_log_probs(mini_batch_chat_formatted, mini_batch_completions)
-
+                    # calculate log_probs for unfrozen policy
+                    online_policy_log_probs = self.get_completion_log_probs(mini_batch_completions)
+                    online_policy_target_log_probs = torch.gather(online_policy_log_probs, dim = -1, index = mini_batch_completions.unsqueeze(-1)).squeeze(-1)
+                    offline_policy_target_log_probs = torch.gather(mini_batch_log_probs, dim = -1, index = mini_batch_completions.unsqueeze(-1)).squeeze(-1)
 
                     # calculate kl divergence
-                    kl_divergence = self.calculate_kl_divergence(online_policy_logits, mini_batch_logits)
+                    kl_divergence = self.calculate_kl_divergence(online_policy_log_probs, mini_batch_log_probs)
 
                     # update rewards, subtracting kl divergence from rewards
                     rewards = self.get_completion_only_rewards(mini_batch_chat_formatted, mini_batch_completions, mini_batch_rewards)
@@ -393,8 +394,8 @@ class PPOTrainer:
                     gae = self._zero_out_input(mini_batch_chat_formatted, mini_batch_completions, gae)
 
                     # calculate clipped loss
-                    clipped_loss = torch.clamp(torch.exp(online_policy_logits - mini_batch_logits), 1 - epsilon, 1 + epsilon) * gae
-                    loss =  torch.exp(online_policy_logits - mini_batch_logits) * gae
+                    clipped_loss = torch.clamp(torch.exp(online_policy_log_probs - mini_batch_log_probs), 1 - epsilon, 1 + epsilon) * gae
+                    loss =  torch.exp(online_policy_log_probs - mini_batch_log_probs) * gae
                     loss = torch.min(loss, clipped_loss)
 
                     mask = (loss != 0).float()
