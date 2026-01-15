@@ -231,20 +231,20 @@ class PPOTrainer:
             output.append(mini_batch)
         return output
     
-    def calculate_kl_divergence(self, online_policy_logits: List[torch.Tensor], offline_policy_logits: List[torch.Tensor]) -> List[torch.Tensor]:
+    def calculate_kl_divergence(self, online_policy_log_probs: List[torch.Tensor], offline_policy_log_probs: List[torch.Tensor]) -> torch.Tensor:
         """
-        Calculates KL divergence for all the completion tokens between offline policy and online policy.
+        Calculates the KL divergence between the online and offline policies
         
-        :param online_policy_logits: Logits of online policy
-        :type online_policy_logits: List[torch.Tensor]
-        :param offline_policy_logits: Logits of frozen policy
-        :type offline_policy_logits: List[torch.Tensor]
-        :return: KL divergence
-        :rtype: List[Tensor]
+        :param online_policy_log_probs: List of tensors of online policy log probabilities for each token
+        :type online_policy_log_probs: List[torch.Tensor]
+        :param offline_policy_log_probs: List of tensors of offline policy log probabilities for each token
+        :type offline_policy_log_probs: List[torch.Tensor]
+        :return: Tensor of KL divergences for each token of each completion
+        :rtype: torch.Tensor
         """
         kl_divergence = []
-        for (online_logits, offline_logits) in zip(online_policy_logits, offline_policy_logits):
-            kl_divergence.append(online_logits - offline_logits)
+        for (online_log_probs, offline_log_probs) in zip(online_policy_log_probs, offline_policy_log_probs):
+            kl_divergence.append(online_log_probs - offline_log_probs)
 
         return torch.stack(kl_divergence, dim=0)
     
