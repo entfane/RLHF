@@ -182,24 +182,24 @@ class PPOTrainer:
         for param in self.policy.pretrained_model.parameters():
             param.requires_grad = True
 
-    def get_logits_rewards_values(self, batch: List[str], completions: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    def get_log_probs_rewards_values(self, batch: List[str], completions: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """
-        Generates logits, rewards, values for completions only
+        Generates log probabilities, rewards for the completion and values for states
         
         :param batch: Batch of chat formatted inputs
         :type batch: List[str]
         :param completions: Tensor of full completions consisting of padding, input and output
         :type completions: torch.Tensor
-        :return: Tuple of logits, rewards and values for each state
+        :return: Tuple of log probabilities, rewards and values for each state
         :rtype: tuple[Tensor, Tensor, Tensor]
         """
         tokenized_inputs = self.tokenizer(batch, padding = 'longest', padding_side = "left", return_tensors = "pt")["input_ids"]
         _, T = tokenized_inputs.shape
         completions_only = self.tokenizer.batch_decode(completions[:, T:], skip_special_tokens = True)
         rewards = self.reward_model.get_reward(zip(batch, completions_only))
-        logits = self.get_completion_log_probs(completions)
+        log_probs = self.get_completion_log_probs(completions)
         values = self.get_completion_values(completions)
-        return (logits, rewards, values)
+        return (log_probs, rewards, values)
     
     def get_random_batch(self, dataset: Dataset, percentage: float) -> dict:
         """
@@ -352,15 +352,14 @@ class PPOTrainer:
                 rollouts = self.rollout(chat_formatted_mini_batch, max_new_tokens=max_new_tokens)
                 mini_batches_completions.append(rollouts)
                 mini_batches_output_masks.append(self._get_output_only_mask(chat_formatted_mini_batch, rollouts))
-                break
 
             # calculate rewards, logits and values (on frozen policy)
-            mini_batches_logits, mini_batches_rewards, mini_batches_values = [], [], []
+            mini_batches_log_probs, mini_batches_rewards, mini_batches_values = [], [], []
             for (mini_batch_chat_formatted, mini_batch_completions, mini_batch_output_masks) in zip(mini_batches_chat_formatted,
                                                                                                    mini_batches_completions,
                                                                                                    mini_batches_output_masks):
-                (logits, rewards, values) = self.get_logits_rewards_values(mini_batch_chat_formatted, mini_batch_completions)
-                mini_batches_logits.append(logits)
+                (logits, rewards, values) = self.get_log_probs_rewards_values(mini_batch_chat_formatted, mini_batch_completions)
+                mini_batches_log_probs.append(logits)
                 mini_batches_rewards.append(rewards)
                 mini_batches_values.append(values * mini_batch_output_masks)
 
@@ -370,7 +369,7 @@ class PPOTrainer:
 
             for epoch in range(epochs):
 
-                zip_for_mini_batches = zip(mini_batches_chat_formatted, mini_batches_completions, mini_batches_logits,
+                zip_for_mini_batches = zip(mini_batches_chat_formatted, mini_batches_completions, mini_batches_log_probs,
                                            mini_batches_rewards, mini_batches_values, mini_batches_output_masks)
 
                 for (mini_batch_chat_formatted, mini_batch_completions, mini_batch_logits, mini_batch_rewards, mini_batch_values, mini_batch_output_masks) in zip_for_mini_batches:
