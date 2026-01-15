@@ -375,7 +375,7 @@ class PPOTrainer:
                 for (mini_batch_chat_formatted, mini_batch_completions, mini_batch_logits, mini_batch_rewards, mini_batch_values, mini_batch_output_masks) in zip_for_mini_batches:
 
                     # calculate logits for unfrozen policy
-                    online_policy_logits = self.get_completion_only_log_probs(mini_batch_chat_formatted, mini_batch_completions)
+                    online_policy_logits = self.get_completion_log_probs(mini_batch_chat_formatted, mini_batch_completions)
 
 
                     # calculate kl divergence
