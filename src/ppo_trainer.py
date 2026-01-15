@@ -84,24 +84,18 @@ class PPOTrainer:
         decoded_completions = self.tokenizer.batch_decode(completion[:, T:], skip_special_tokens = True)
         return decoded_completions
     
-    def get_completion_only_rewards(self, input: List[str], output: torch.Tensor, rewards: torch.Tensor) -> torch.Tensor:
+    def get_completion_only_rewards(self, mask: torch.Tensor, rewards: torch.Tensor) -> torch.Tensor:
         """
-        Generates rewards only for the last token of the output generation
-        
-        :param input: Batch of chat formatted inputs 
-        :type input: List[str]
-        :param output: Tensor of full completions consisting of padding, input and output
-        :type output: torch.Tensor
-        :param rewards: Tensor of rewards, one per completion
+        For every completion sets the last completion token to the reward value as a terminal state, other states all set to 0
+
+        :param mask: Mask for generated completions only, with 0s for padding/eos tokens
+        :type mask: torch.Tensor
+        :param rewards: Tensor of rewards for every completion
         :type rewards: torch.Tensor
-        :return: Tensor of output shape, with rewards at every completion state
-        :rtype: Tensor
         """
-        reward_output = torch.ones_like(output, dtype = torch.float)
-        reward_output = self._zero_out_input(input, output, reward_output)
-        last_idx = self._get_last_token_idx(reward_output)
-        reward_output = torch.zeros_like(output, dtype = torch.float)
-        B, _ = output.shape
+        last_idx = self._get_last_token_idx_from_mask(mask)
+        reward_output = torch.zeros_like(mask, dtype = torch.float)
+        B, _ = mask.shape
         for i in range(B):
             reward_output[i, last_idx[i]] = rewards[i]
         return reward_output
@@ -149,18 +143,17 @@ class PPOTrainer:
         output = torch.where(keep_mask, output, 0)
         return output
     
-    def _get_last_token_idx(self, completion: torch.Tensor) -> torch.Tensor:
+    def _get_last_token_idx_from_mask(self, mask: torch.Tensor) -> torch.Tensor:
         """
         Returns a tensor of indices of last tokens for every completion. 
         
-        :param completion: Tensor of full completions consisting of padding, input and output
-        :type completion: torch.Tensor
+        :param mask: Mask for generated completions only, with 0s for padding/eos tokens
+        :type mask: torch.Tensor
         :return: Tensor of last indices
         :rtype: Tensor
         """
-        mask = (completion != torch.zeros_like(completion))
-        _, T = completion.shape
-        idxs = torch.arange(T)
+        _, T = mask.shape
+        idxs = torch.arange(T).to("cuda")
         masked_idx = mask * (idxs)
         last_idx = masked_idx.argmax(dim=1)
         return last_idx
@@ -244,7 +237,7 @@ class PPOTrainer:
         """
         kl_divergence = []
         for (online_log_probs, offline_log_probs) in zip(online_policy_log_probs, offline_policy_log_probs):
-            kl_divergence.append(online_log_probs - offline_log_probs)
+            kl_divergence.append(torch.sum(online_log_probs - offline_log_probs, dim = -1))
 
         return torch.stack(kl_divergence, dim=0)
     
@@ -381,9 +374,8 @@ class PPOTrainer:
 
                     # calculate kl divergence
                     kl_divergence = self.calculate_kl_divergence(online_policy_log_probs, mini_batch_log_probs)
-
                     # update rewards, subtracting kl divergence from rewards
-                    rewards = self.get_completion_only_rewards(mini_batch_chat_formatted, mini_batch_completions, mini_batch_rewards)
+                    rewards = self.get_completion_only_rewards(mini_batch_output_masks, mini_batch_rewards)
                     rewards -= kl_divergence
 
                     values = self.get_completion_only_values(mini_batch_chat_formatted, mini_batch_completions)
