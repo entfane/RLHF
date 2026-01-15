@@ -25,5 +25,5 @@ if __name__ == "__main__":
     reward_model = RewardModel("Skywork/Skywork-Reward-V2-Qwen3-0.6B")
     dataset = load_dataset("TuringEnterprises/Turing-Open-Reasoning", split = "train")
     trainer = PPOTrainer(policy, tokenizer, reward_model)
-    trainer.train(iterations=1, dataset = dataset, batch_sampling_percentage=0.1, mini_batch_size=4,
+    trainer.train(iterations=1, dataset = dataset, batch_sampling_percentage=0.1, mini_batch_size=1,
                   epochs = 1, max_new_tokens = 16, prompt_col_name="question", gamma = 0.1, lmbda = 0.1, epsilon=0.1)
