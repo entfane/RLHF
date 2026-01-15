@@ -40,7 +40,7 @@ class PPOTrainer:
         :return: A tensor of full completions consisting of padding, input and output
         :rtype: Tensor
         """
-        tokenized_inputs = self.tokenizer(inputs, padding = 'longest', padding_side = "left", return_tensors = "pt")
+        tokenized_inputs = self.tokenizer(inputs, padding = 'longest', padding_side = "left", return_tensors = "pt").to('cuda')
         outputs = self.policy.generate(**tokenized_inputs, max_new_tokens = max_new_tokens)
         return outputs
 
@@ -352,6 +352,7 @@ class PPOTrainer:
                 rollouts = self.rollout(chat_formatted_mini_batch, max_new_tokens=max_new_tokens)
                 mini_batches_completions.append(rollouts)
                 mini_batches_output_masks.append(self._get_output_only_mask(chat_formatted_mini_batch, rollouts))
+                break
 
             # calculate rewards, logits and values (on frozen policy)
             mini_batches_logits, mini_batches_rewards, mini_batches_values = [], [], []
@@ -359,8 +360,8 @@ class PPOTrainer:
                                                                                                    mini_batches_completions,
                                                                                                    mini_batches_output_masks):
                 (logits, rewards, values) = self.get_logits_rewards_values(mini_batch_chat_formatted, mini_batch_completions)
-                mini_batches_logits.append(logits * mini_batch_output_masks)
-                mini_batches_rewards.append(rewards * mini_batch_output_masks)
+                mini_batches_logits.append(logits)
+                mini_batches_rewards.append(rewards)
                 mini_batches_values.append(values * mini_batch_output_masks)
 
             self._unfreeze_policy()
