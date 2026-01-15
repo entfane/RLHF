@@ -241,7 +241,7 @@ class PPOTrainer:
 
         return torch.stack(kl_divergence, dim=0)
     
-    def calculate_GAE(self, rewards: torch.Tensor, values: torch.Tensor, gamma: float, lmbda: float) -> torch.Tensor:
+    def calculate_GAE(self, rewards: torch.Tensor, values: torch.Tensor, gamma: float, lmbda: float, mask: torch.Tensor) -> torch.Tensor:
         """
         Calculates GAE iteratively from the last state backwards.
         
@@ -253,11 +253,13 @@ class PPOTrainer:
         :type gamma: float
         :param lmbda: Lambda parameter
         :type lmbda: float
+        :param mask: Mask for generated completions only, with 0s for padding/eos tokens
+        :type mask: torch.Tensor
         :return: GAE tensor
-        :rtype: Tensor
+        :rtype: torch.Tensor
         """
         B, _ = rewards.shape
-        last_idx = self._get_last_token_idx(rewards)
+        last_idx = self._get_last_token_idx_from_mask(mask)
         advantage = torch.zeros_like(rewards, dtype=torch.float)
         for i in range(B):
             beta = rewards[i, last_idx[i]] - values[i, last_idx[i]]
@@ -265,7 +267,7 @@ class PPOTrainer:
             for j in range(last_idx[i] - 1, 0, -1):
                 beta = rewards[i, j] + gamma * values[i, j + 1] - values[i, j]
                 advantage[i, j] = beta + lmbda * gamma * advantage[i, j + 1]
-        return advantage
+        return advantage * mask
     
 
     def calculate_entropy(self, input: List[str], output: torch.Tensor) -> float:
@@ -381,7 +383,7 @@ class PPOTrainer:
                     values = self.get_completion_only_values(mini_batch_chat_formatted, mini_batch_completions)
 
                     # calculate the advantage for every step, using gae
-                    gae = self.calculate_GAE(rewards, mini_batch_values, gamma, lmbda)
+                    gae = self.calculate_GAE(rewards, mini_batch_values, gamma, lmbda, mini_batch_output_masks)
 
                     gae = self._zero_out_input(mini_batch_chat_formatted, mini_batch_completions, gae)
 
