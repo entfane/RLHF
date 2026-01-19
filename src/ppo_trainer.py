@@ -267,7 +267,7 @@ class PPOTrainer:
             for j in range(last_idx[i] - 1, 0, -1):
                 beta = rewards[i, j] + gamma * values[i, j + 1] - values[i, j]
                 advantage[i, j] = beta + lmbda * gamma * advantage[i, j + 1]
-        return advantage * mask
+        return advantage
     
 
     def calculate_entropy(self, input: List[str], output: torch.Tensor) -> float:
