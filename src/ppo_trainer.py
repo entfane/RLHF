@@ -386,6 +386,11 @@ class PPOTrainer:
 
                     # calculate the advantage for every step, using gae
                     gae = self.calculate_GAE(rewards, mini_batch_values, gamma, lmbda, mini_batch_output_masks)
+                    torch.cuda.empty_cache()
+                    likelihood_ratio = torch.exp(online_policy_target_log_probs - offline_policy_target_log_probs)
+                    clipped_likelihood_ratio = torch.clamp(likelihood_ratio, 1 - epsilon, 1 + epsilon)
+                    loss = torch.min(likelihood_ratio, clipped_likelihood_ratio) * gae
+
 
                     # calculate clipped loss
                     clipped_loss = torch.clamp(torch.exp(online_policy_log_probs - mini_batch_log_probs), 1 - epsilon, 1 + epsilon) * gae
