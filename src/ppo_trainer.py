@@ -290,8 +290,6 @@ class PPOTrainer:
                     total_entropy_sum += distr.entropy()
         total_entropy /= mask.sum()
         return total_entropy
-
-
     
     
     def train(self, iterations: int, dataset: Dataset, batch_sampling_percentage: float,
@@ -340,7 +338,6 @@ class PPOTrainer:
                 rollouts = self.rollout(chat_formatted_mini_batch, max_new_tokens=max_new_tokens)
                 mini_batches_completions.append(rollouts)
                 mini_batches_output_masks.append(self._get_output_only_mask(chat_formatted_mini_batch, rollouts))
-                break
 
             # calculate rewards, log_probs and values (on frozen policy)
             mini_batches_log_probs, mini_batches_rewards, mini_batches_values = [], [], []
@@ -351,7 +348,6 @@ class PPOTrainer:
                 mini_batches_log_probs.append(log_probs)
                 mini_batches_rewards.append(rewards)
                 mini_batches_values.append(values * mini_batches_output_masks[i])
-                break
 
             self._unfreeze_policy()
 
