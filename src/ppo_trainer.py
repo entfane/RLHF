@@ -294,7 +294,7 @@ class PPOTrainer:
     
     def train(self, iterations: int, dataset: Dataset, batch_sampling_percentage: float,
               mini_batch_size: int, epochs: int, max_new_tokens: int, prompt_col_name: str,
-              gamma: float, lmbda: float, epsilon: float):
+              gamma: float, lmbda: float, epsilon: float, value_loss_coef: float, entropy_loss_coef: float):
         
         """
         Main RLHF training loop
@@ -319,6 +319,10 @@ class PPOTrainer:
         :type lmbda: float
         :param epsilon: PPO loss clipping epsilon
         :type epsilon: float
+        :param value_loss_coef: Coefficient for value loss in totall loss function
+        :type value_loss_coef: float
+        :param entropy_loss_coef: Coefficient for value loss in totall loss function
+        :type entropy_loss_coef: float
         """
 
         for iter in range(iterations):
@@ -375,20 +379,20 @@ class PPOTrainer:
 
                     # calculate the advantage for every step, using gae
                     gae = self.calculate_GAE(rewards, mini_batch_values, gamma, lmbda, mini_batch_output_masks)
-                    torch.cuda.empty_cache()
                     likelihood_ratio = torch.exp(online_policy_target_log_probs - offline_policy_target_log_probs)
                     clipped_likelihood_ratio = torch.clamp(likelihood_ratio, 1 - epsilon, 1 + epsilon)
                     loss = torch.min(likelihood_ratio, clipped_likelihood_ratio) * gae
                     
-                    loss = -loss.sum() / mini_batch_output_masks.sum()
+                    loss = loss.sum() / mini_batch_output_masks.sum()
 
                     # calculate entropy loss
                     entropy_loss = self.calculate_entropy(online_policy_log_probs, mini_batch_output_masks)
 
                     # calculate value loss
-                    value_loss = 0.5 * (((values - (mini_batch_values + gae)) ** 2).mean())
+                    value_loss = 0.5 * (((online_values - (mini_batch_values + gae)) ** 2).mean())
 
-                    total_loss = loss + value_loss - entropy_loss
+                    total_loss = -loss + value_loss_coef * value_loss - entropy_loss_coef * entropy_loss
+                    print(total_loss)
 
                     optimizer.zero_grad()
 
