@@ -270,33 +270,26 @@ class PPOTrainer:
         return advantage
     
 
-    def calculate_entropy(self, input: List[str], output: torch.Tensor) -> float:
+    def calculate_entropy(self, log_probs: torch.Tensor, mask: torch.Tensor) -> float:
         """
-        Calculates entropy loss for completions only.
+        Calculates entropy for log probabilities
         
-        :param input: Batch of chat formatted inputs
-        :type input: List[str]
-        :param output: Tensor of full completions consisting of padding, input and output
-        :type output: torch.Tensor
-        :return: Entropy
+        :param log_probs: Log probabilities of tokens
+        :type log_probs: torch.Tensor
+        :param mask: Mask of output only tokens
+        :type mask: torch.Tensor
+        :return: Normalized entropy
         :rtype: float
         """
-
-        logits, _, _ = self.policy(output)
-        mask = torch.ones_like(output)
-        mask = self._zero_out_input(input, output, mask)
-        B, T, C = logits.shape
+        B, T, _ = log_probs.shape
+        total_entropy = 0
         for i in range(B):
-            total_entropy_sum = 0
-            total_states = 0
             for t in range(T):
                 if mask[i, t] != 0:
-                    total_states += 1
-                    distr = Categorical(F.log_softmax(logits[i, t, :]))
-                    total_entropy_sum -= distr.entropy()
-            total_entropy_sum /= total_states
-        total_entropy_sum /= B
-        return total_entropy_sum
+                    distr = Categorical(log_probs[i, t, :])
+                    total_entropy_sum += distr.entropy()
+        total_entropy /= mask.sum()
+        return total_entropy
 
 
     
@@ -394,7 +387,7 @@ class PPOTrainer:
                     loss = -loss.sum() / mini_batch_output_masks.sum()
 
                     # calculate entropy loss
-                    entropy_loss = self.calculate_entropy(mini_batch_chat_formatted, mini_batch_completions)
+                    entropy_loss = self.calculate_entropy(online_policy_log_probs)
 
                     # calculate value loss
                     value_loss = 0.5 * (((values - (mini_batch_values + gae)) ** 2).mean())
