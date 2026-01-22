@@ -287,7 +287,7 @@ class PPOTrainer:
             for t in range(T):
                 if mask[i, t] != 0:
                     distr = Categorical(log_probs[i, t, :])
-                    total_entropy_sum += distr.entropy()
+                    total_entropy += distr.entropy()
         total_entropy /= mask.sum()
         return total_entropy
     
@@ -383,7 +383,7 @@ class PPOTrainer:
                     loss = -loss.sum() / mini_batch_output_masks.sum()
 
                     # calculate entropy loss
-                    entropy_loss = self.calculate_entropy(online_policy_log_probs)
+                    entropy_loss = self.calculate_entropy(online_policy_log_probs, mini_batch_output_masks)
 
                     # calculate value loss
                     value_loss = 0.5 * (((values - (mini_batch_values + gae)) ** 2).mean())
