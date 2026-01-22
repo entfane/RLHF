@@ -390,14 +390,8 @@ class PPOTrainer:
                     likelihood_ratio = torch.exp(online_policy_target_log_probs - offline_policy_target_log_probs)
                     clipped_likelihood_ratio = torch.clamp(likelihood_ratio, 1 - epsilon, 1 + epsilon)
                     loss = torch.min(likelihood_ratio, clipped_likelihood_ratio) * gae
-
-
-                    # calculate clipped loss
-                    clipped_loss = torch.clamp(torch.exp(online_policy_log_probs - mini_batch_log_probs), 1 - epsilon, 1 + epsilon) * gae
-                    loss =  torch.exp(online_policy_log_probs - mini_batch_log_probs) * gae
-                    loss = torch.min(loss, clipped_loss)
                     
-                    loss = -(loss.sum()) / (mini_batch_output_masks.sum() * len(mini_batch_chat_formatted))
+                    loss = -loss.sum() / mini_batch_output_masks.sum()
 
                     # calculate entropy loss
                     entropy_loss = self.calculate_entropy(mini_batch_chat_formatted, mini_batch_completions)
