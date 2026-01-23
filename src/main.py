@@ -11,19 +11,33 @@ from dataclasses import dataclass, field
 class RLHFArguments:
     model_name: str = field(default = "none", metadata={"help": "HF Name of the model to optimize"})
     reward_model_name: str = field(default = "none", metadata={"help": "HF Reward model name"})
-    prompt_column_name: str = field(default = "text", metadata={"help": "Name of prompt column in the dataset"})
     dataset: str = field(default = "none", metadata={"help": "HF dataset name"})
+    dataset_split: str = field(default = "train", metadata={"help": "HF dataset split name"})
+    prompt_column_name: str = field(default = "text", metadata={"help": "Name of prompt column in the dataset"})
     iterations: int = field(default = 1, metadata={"help": "Number of iterations"})
+    epochs: int = field(default = 1, metadata={"help": "Number of epochs"})
     batch_sampling_percentage: float = field(default = 1, metadata={"help": "Percentage of samples to be taken in a batch in a single iteration"})
     mini_batch_size: int = field(default = 1, metadata={"help": "Mini batch size"})
-    epochs: int = field(default = 1, metadata={"help": "Number of epochs"})
     max_new_tokens: int = field(default = 128, metadata={"help": "Maximum new tokens to be generated in rollouts"})
+    gamma: float = field(default = 0.98, metadata={"help": "Gamma parameter for TD calculation"})
+    lmbda: float = field(default = 0.9, metadata={"help": "Lambda parameter for GAE calculation"})
+    epsilon: float = field(default = 0.1, metadata={"help": "Epsilon clipping parameter"})
+    value_loss_coef: float = field(default = 0.1, metadata={"help": "Coefficient for value loss in total loss"})
+    entropy_loss_coef: float = field(default = 0.1, metadata={"help": "Coefficient for entropy loss in total loss"})
+
 
 if __name__ == "__main__":
-    policy = AutoModelForCausalLMWithValueHead.from_pretrained("HuggingFaceTB/SmolLM2-135M-Instruct", device_map="cuda")
-    tokenizer = AutoTokenizer.from_pretrained("HuggingFaceTB/SmolLM2-135M-Instruct")
-    reward_model = RewardModel("Skywork/Skywork-Reward-V2-Qwen3-0.6B")
-    dataset = load_dataset("TuringEnterprises/Turing-Open-Reasoning", split = "train")
+    parser = HfArgumentParser(RLHFArguments)
+    args = parser.parse_args_into_dataclasses()[0]
+
+    policy = AutoModelForCausalLMWithValueHead.from_pretrained(args.model_name, device_map="cuda")
+    tokenizer = AutoTokenizer.from_pretrained(args.model_name)
+    reward_model = RewardModel(args.reward_model_name)
+
+    dataset = load_dataset(args.dataset, split = args.dataset_split)
+
     trainer = PPOTrainer(policy, tokenizer, reward_model)
-    trainer.train(iterations=3, dataset = dataset, batch_sampling_percentage=0.1, mini_batch_size=1,
-                  epochs = 100, max_new_tokens = 16, prompt_col_name="question", gamma = 0.1, lmbda = 0.1, epsilon=0.1, value_loss_coef = 0.1, entropy_loss_coef = 0.1)
+    trainer.train(iterations=args.iterations, dataset = dataset, batch_sampling_percentage=args.batch_sampling_percentage, mini_batch_size=args.mini_batch_size,
+                  epochs = args.epochs, max_new_tokens = args.max_new_tokens, prompt_col_name=args.prompt_column_name, gamma = args.gamma, lmbda = args.lmbda,
+                  epsilon=args.epsilon, value_loss_coef = args.value_loss_coef, entropy_loss_coef = args.entropy_loss_coef)
+    
