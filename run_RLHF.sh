@@ -15,6 +15,7 @@ LAMBDA=0.9
 EPSILON=0.1
 VALUE_LOSS_COEF=0.1
 ENTROPY_LOSS_COEF=0.1
+FREQUENCY_OF_COMPLETION_LOGGING=1
 
 python src/main.py \
     --model_name "$MODEL_NAME" \
@@ -31,4 +32,5 @@ python src/main.py \
     --lmbda "$LAMBDA" \
     --epsilon "$EPSILON" \
     --value_loss_coef "$VALUE_LOSS_COEF" \
-    --entropy_loss_coef "$ENTROPY_LOSS_COEF"
+    --entropy_loss_coef "$ENTROPY_LOSS_COEF" \
+    --frequency_of_completion_logging "$FREQUENCY_OF_COMPLETION_LOGGING"
