@@ -452,7 +452,7 @@ class PPOTrainer:
                     value_loss = 0.5 * (((online_values - (mini_batch_values + gae)) ** 2).mean())
 
                     total_loss = -loss + value_loss_coef * value_loss - entropy_loss_coef * entropy_loss
-                    print(f"Iteration {iter + 1} / {len(iterations)} Epoch {epoch + 1} / {epochs} Total loss: {total_loss.item()}")
+                    print(f"Iteration {iter + 1} / {iterations} Epoch {epoch + 1} / {epochs} Total loss: {total_loss.item()}")
 
                     optimizer.zero_grad()
 
