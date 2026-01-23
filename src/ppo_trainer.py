@@ -352,6 +352,8 @@ class PPOTrainer:
         wandb.watch(self.policy.pretrained_model, log="gradients", log_freq=100, log_graph=False)
         wandb.watch(self.policy.v_head, log="gradients", log_freq=100, log_graph=False)
 
+        optimizer = torch.optim.Adam(self.policy.parameters())
+
         for iter in range(iterations):
 
             iter_metrics = {
@@ -405,7 +407,7 @@ class PPOTrainer:
             }, step=global_step)
             self._unfreeze_policy()
 
-            optimizer = torch.optim.Adam(self.policy.parameters())
+            
 
             for epoch in range(epochs):
 
