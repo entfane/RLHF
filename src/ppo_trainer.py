@@ -297,7 +297,7 @@ class PPOTrainer:
     def train(self, iterations: int, dataset: Dataset, batch_sampling_percentage: float,
               mini_batch_size: int, epochs: int, max_new_tokens: int, prompt_col_name: str,
               gamma: float, lmbda: float, epsilon: float, value_loss_coef: float, entropy_loss_coef: float,
-              wandb_project: str = "rlhf-training", wandb_run_name: Optional[str] = None,
+              wandb_project: Optional[str] = "rlhf-training", wandb_run_name: Optional[str] = None,
               frequency_of_completion_logging: Optional[int] = None):
         
         """
@@ -349,8 +349,8 @@ class PPOTrainer:
             config=config
         )
 
-        wandb.watch(self.policy.pretrained_model, log="all", log_freq=100, log_graph=False)
-        wandb.watch(self.policy.v_head, log="all", log_freq=100, log_graph=False)
+        wandb.watch(self.policy.pretrained_model, log="gradients", log_freq=100, log_graph=False)
+        wandb.watch(self.policy.v_head, log="gradients", log_freq=100, log_graph=False)
 
         for iter in range(iterations):
 
