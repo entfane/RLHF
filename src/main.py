@@ -31,12 +31,15 @@ if __name__ == "__main__":
     args = parser.parse_args_into_dataclasses()[0]
 
     policy = AutoModelForCausalLMWithValueHead.from_pretrained(args.model_name, device_map="cuda")
+    print(f"Model loaded on {policy.pretrained_model.device}")
     tokenizer = AutoTokenizer.from_pretrained(args.model_name)
     reward_model = RewardModel(args.reward_model_name)
 
     dataset = load_dataset(args.dataset, split = args.dataset_split)
+    print("Dataset was loaded")
 
     trainer = PPOTrainer(policy, tokenizer, reward_model)
+    print("PPO Trainer was initialized, starting training...")
     trainer.train(iterations=args.iterations, dataset = dataset, batch_sampling_percentage=args.batch_sampling_percentage, mini_batch_size=args.mini_batch_size,
                   epochs = args.epochs, max_new_tokens = args.max_new_tokens, prompt_col_name=args.prompt_column_name, gamma = args.gamma, lmbda = args.lmbda,
                   epsilon=args.epsilon, value_loss_coef = args.value_loss_coef, entropy_loss_coef = args.entropy_loss_coef)
