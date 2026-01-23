@@ -6,8 +6,8 @@ DATASET="TuringEnterprises/Turing-Open-Reasoning"
 DATASET_SPLIT="train"
 PROMPT_COLUMN="question"
 ITERATIONS=1
-BATCH_SAMPLING_PERCENTAGE=1.0
-MINI_BATCH_SIZE=4
+BATCH_SAMPLING_PERCENTAGE=0.1
+MINI_BATCH_SIZE=1
 EPOCHS=1
 MAX_NEW_TOKENS=128
 GAMMA=0.98
@@ -15,6 +15,7 @@ LAMBDA=0.9
 EPSILON=0.1
 VALUE_LOSS_COEF=0.1
 ENTROPY_LOSS_COEF=0.1
+FREQUENCY_OF_COMPLETION_LOGGING=1
 
 python src/main.py \
     --model_name "$MODEL_NAME" \
@@ -31,4 +32,5 @@ python src/main.py \
     --lmbda "$LAMBDA" \
     --epsilon "$EPSILON" \
     --value_loss_coef "$VALUE_LOSS_COEF" \
-    --entropy_loss_coef "$ENTROPY_LOSS_COEF"
+    --entropy_loss_coef "$ENTROPY_LOSS_COEF" \
+    --frequency_of_completion_logging "$FREQUENCY_OF_COMPLETION_LOGGING"

@@ -1,8 +1,10 @@
-from typing import List
+from typing import List, Any, Optional, Dict
 import torch
 import torch.nn.functional as F
 from datasets import Dataset
 from torch.distributions import Categorical
+import numpy as np
+import wandb
 
 class PPOTrainer:
 
@@ -294,7 +296,9 @@ class PPOTrainer:
     
     def train(self, iterations: int, dataset: Dataset, batch_sampling_percentage: float,
               mini_batch_size: int, epochs: int, max_new_tokens: int, prompt_col_name: str,
-              gamma: float, lmbda: float, epsilon: float, value_loss_coef: float, entropy_loss_coef: float):
+              gamma: float, lmbda: float, epsilon: float, value_loss_coef: float, entropy_loss_coef: float,
+              wandb_project: Optional[str] = "rlhf-training", wandb_run_name: Optional[str] = None,
+              frequency_of_completion_logging: Optional[int] = None):
         
         """
         Main RLHF training loop
@@ -325,7 +329,46 @@ class PPOTrainer:
         :type entropy_loss_coef: float
         """
 
+        config = {
+            "iterations": iterations,
+            "batch_sampling_percentage": batch_sampling_percentage,
+            "mini_batch_size": mini_batch_size,
+            "epochs": epochs,
+            "max_new_tokens": max_new_tokens,
+            "gamma": gamma,
+            "lambda": lmbda,
+            "epsilon": epsilon,
+            "value_loss_coef": value_loss_coef,
+            "entropy_loss_coef": entropy_loss_coef,
+            "dataset_size": len(dataset),
+        }
+
+        wandb.init(
+            project=wandb_project,
+            name=wandb_run_name,
+            config=config
+        )
+
+        wandb.watch(self.policy.pretrained_model, log="gradients", log_freq=100, log_graph=False)
+        wandb.watch(self.policy.v_head, log="gradients", log_freq=100, log_graph=False)
+
         for iter in range(iterations):
+
+            iter_metrics = {
+                "iteration": iter,
+                "policy_losses": [],
+                "value_losses": [],
+                "entropy_losses": [],
+                "total_losses": [],
+                "kl_divergences": [],
+                "rewards": [],
+                "advantages": [],
+                "likelihood_ratios": [],
+                "clipping_fractions": [],
+                "value_predictions": [],
+                "explained_variance": [],
+            }
+            global_step = 0
 
             # sample a batch of minibatches
             self._freeze_policy()
@@ -352,12 +395,29 @@ class PPOTrainer:
                 mini_batches_log_probs.append(log_probs)
                 mini_batches_rewards.append(rewards)
                 mini_batches_values.append(values * mini_batches_output_masks[i])
+                iter_metrics["rewards"].extend(rewards.flatten().cpu().tolist())
 
+            wandb.log({
+                "rewards/mean": np.mean(iter_metrics["rewards"]),
+                "rewards/std": np.std(iter_metrics["rewards"]),
+                "rewards/min": np.min(iter_metrics["rewards"]),
+                "rewards/max": np.max(iter_metrics["rewards"]),
+            }, step=global_step)
             self._unfreeze_policy()
 
             optimizer = torch.optim.Adam(self.policy.parameters())
 
             for epoch in range(epochs):
+
+                epoch_metrics = {
+                    "policy_loss": [],
+                    "value_loss": [],
+                    "entropy_loss": [],
+                    "total_loss": [],
+                    "kl_div": [],
+                    "clip_frac": [],
+                    "approx_kl": [],
+                }
 
                 zip_for_mini_batches = zip(mini_batches_chat_formatted, mini_batches_completions, mini_batches_log_probs,
                                            mini_batches_rewards, mini_batches_values, mini_batches_output_masks)
@@ -392,10 +452,62 @@ class PPOTrainer:
                     value_loss = 0.5 * (((online_values - (mini_batch_values + gae)) ** 2).mean())
 
                     total_loss = -loss + value_loss_coef * value_loss - entropy_loss_coef * entropy_loss
-                    print(total_loss)
+                    print(f"Iteration {iter + 1} / {iterations} Epoch {epoch + 1} / {epochs} Total loss: {total_loss.item()}")
 
                     optimizer.zero_grad()
 
                     total_loss.backward()
 
                     optimizer.step()
+
+                    with torch.no_grad():
+                        clipping_fraction = ((likelihood_ratio - 1.0).abs() > epsilon).float().mean().item()
+                        approx_kl = (offline_policy_target_log_probs - online_policy_target_log_probs).mean().item()
+
+                    epoch_metrics["policy_loss"].append(loss.item())
+                    epoch_metrics["value_loss"].append(value_loss.item())
+                    epoch_metrics["entropy_loss"].append(entropy_loss.item())
+                    epoch_metrics["total_loss"].append(total_loss.item())
+                    epoch_metrics["kl_div"].append(kl_divergence.mean().item())
+                    epoch_metrics["approx_kl"].append(approx_kl)
+                    epoch_metrics["clip_frac"].append(clipping_fraction)
+
+                    wandb.log({
+                        "train/policy_loss": loss.item(),
+                        "train/value_loss": value_loss.item(),
+                        "train/entropy_loss": entropy_loss.item(),
+                        "train/total_loss": total_loss.item(),
+                        "train/kl_divergence": kl_divergence.mean().item(),
+                        "train/clipping_fraction": clipping_fraction,
+                        "train/approx_kl": approx_kl,
+                        "train/likelihood_ratio_mean": likelihood_ratio.mean().item(),
+                        "train/advantage_mean": gae.mean().item(),
+                        "train/advantage_std": gae.std().item(),
+                        "train/learning_rate": optimizer.param_groups[0]['lr'],
+                        "train/value_pred_mean": online_values.mean().item(),
+                        "train/value_pred_std": online_values.std().item(),
+                        "train/return_mean": (mini_batch_values + gae).mean().item(),
+                        "train/return_std": (mini_batch_values + gae).std().item(),
+                        "global_step": global_step,
+                        "epoch": epoch,
+                    }, step=global_step)
+                
+                    global_step += 1
+
+                    if (frequency_of_completion_logging is not None) and (iter % frequency_of_completion_logging == 0):
+                        sample_prompts = mini_batches[0][:3]
+                        sample_completions = mini_batches_completions[0][:3]
+                        
+                        completion_table = wandb.Table(
+                            columns=["iteration", "prompt", "completion"],
+                            data=[
+                                [iter, prompt, self.tokenizer.decode(completion)]
+                                for prompt, completion in zip(sample_prompts, sample_completions)
+                            ]
+                        )
+                        wandb.log({f"samples/completions_iter_{iter}": completion_table}, step=global_step)
+        
+        wandb.finish()
+        print("Training completed!")
+
+        
