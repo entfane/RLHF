@@ -15,6 +15,7 @@ class RLHFArguments:
     dataset: str = field(default = "none", metadata={"help": "HF dataset name"})
     dataset_split: str = field(default = "train", metadata={"help": "HF dataset split name"})
     prompt_column_name: str = field(default = "text", metadata={"help": "Name of prompt column in the dataset"})
+    beta: float = field(default = 0.01, metadata={"help": "Beta parameter for KL divergence"})
     iterations: int = field(default = 1, metadata={"help": "Number of iterations"})
     epochs: int = field(default = 1, metadata={"help": "Number of epochs"})
     batch_sampling_percentage: float = field(default = 1, metadata={"help": "Percentage of samples to be taken in a batch in a single iteration"})
@@ -45,7 +46,7 @@ if __name__ == "__main__":
     trainer = PPOTrainer(policy, tokenizer, reward_model)
     print("PPO Trainer was initialized, starting training...")
     trainer.train(iterations=args.iterations, dataset = dataset, batch_sampling_percentage=args.batch_sampling_percentage, mini_batch_size=args.mini_batch_size,
-                  epochs = args.epochs, max_new_tokens = args.max_new_tokens, prompt_col_name=args.prompt_column_name, gamma = args.gamma, lmbda = args.lmbda,
+                  epochs = args.epochs, max_new_tokens = args.max_new_tokens, prompt_col_name=args.prompt_column_name, beta = args.beta, gamma = args.gamma, lmbda = args.lmbda,
                   epsilon = args.epsilon, value_loss_coef = args.value_loss_coef, entropy_loss_coef = args.entropy_loss_coef, wandb_project = args.wandb_project,
                   wandb_run_name = args.wandb_run_name, frequency_of_completion_logging = args.frequency_of_completion_logging)
     

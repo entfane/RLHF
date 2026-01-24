@@ -296,7 +296,7 @@ class PPOTrainer:
     
     def train(self, iterations: int, dataset: Dataset, batch_sampling_percentage: float,
               mini_batch_size: int, epochs: int, max_new_tokens: int, prompt_col_name: str,
-              gamma: float, lmbda: float, epsilon: float, value_loss_coef: float, entropy_loss_coef: float,
+              beta: float, gamma: float, lmbda: float, epsilon: float, value_loss_coef: float, entropy_loss_coef: float,
               wandb_project: Optional[str] = "rlhf-training", wandb_run_name: Optional[str] = None,
               frequency_of_completion_logging: Optional[int] = None):
         
@@ -317,6 +317,8 @@ class PPOTrainer:
         :type max_new_tokens: int
         :param prompt_col_name: Name of the column with prompts
         :type prompt_col_name: str
+        :param beta: Coefficient for KL divergence penalty
+        :type beta: float
         :param gamma: Gamma parameter in GAE
         :type gamma: float
         :param lmbda: Lambda parameter in GAE
@@ -435,7 +437,7 @@ class PPOTrainer:
                     kl_divergence = self.calculate_kl_divergence(online_policy_log_probs, mini_batch_log_probs)
                     # update rewards, subtracting kl divergence from rewards
                     rewards = self.get_completion_only_rewards(mini_batch_output_masks, mini_batch_rewards)
-                    rewards -= kl_divergence
+                    rewards -= beta * kl_divergence
 
                     online_values = self.get_completion_values(mini_batch_completions) * mini_batch_output_masks
 
