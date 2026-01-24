@@ -375,41 +375,38 @@ class PPOTrainer:
             global_step = 0
 
             # sample a batch of minibatches
-            self._freeze_policy()
-            batch = self.get_random_batch(dataset, percentage=batch_sampling_percentage)[prompt_col_name]
-            mini_batches = self._get_mini_batches(batch, mini_batch_size=mini_batch_size)
+            with torch.no_grad():
+                batch = self.get_random_batch(dataset, percentage=batch_sampling_percentage)[prompt_col_name]
+                mini_batches = self._get_mini_batches(batch, mini_batch_size=mini_batch_size)
 
-            # perform a rollout on batches
-            mini_batches_chat_formatted = []
-            mini_batches_completions = []
-            mini_batches_output_masks = []
-            for mini_batch in mini_batches:
-                chat_formatted_mini_batch = self.create_chat_batch_from_prompts(mini_batch)
-                mini_batches_chat_formatted.append(chat_formatted_mini_batch)
-                rollouts = self.rollout(chat_formatted_mini_batch, max_new_tokens=max_new_tokens)
-                mini_batches_completions.append(rollouts)
-                mini_batches_output_masks.append(self._get_output_only_mask(chat_formatted_mini_batch, rollouts))
+                # perform a rollout on batches
+                mini_batches_chat_formatted = []
+                mini_batches_completions = []
+                mini_batches_output_masks = []
+                for mini_batch in mini_batches:
+                    chat_formatted_mini_batch = self.create_chat_batch_from_prompts(mini_batch)
+                    mini_batches_chat_formatted.append(chat_formatted_mini_batch)
+                    rollouts = self.rollout(chat_formatted_mini_batch, max_new_tokens=max_new_tokens).detach()
+                    mini_batches_completions.append(rollouts)
+                    mini_batches_output_masks.append(self._get_output_only_mask(chat_formatted_mini_batch, rollouts).detach())
 
-            # calculate rewards, log_probs and values (on frozen policy)
-            mini_batches_log_probs, mini_batches_rewards, mini_batches_values = [], [], []
-            for i, (mini_batch_chat_formatted, mini_batch_completions, mini_batch_output_masks) in enumerate(zip(mini_batches_chat_formatted,
-                                                                                                   mini_batches_completions,
-                                                                                                   mini_batches_output_masks)):
-                (log_probs, rewards, values) = self.get_log_probs_rewards_values(mini_batch_chat_formatted, mini_batch_completions)
-                mini_batches_log_probs.append(log_probs)
-                mini_batches_rewards.append(rewards)
-                mini_batches_values.append(values * mini_batches_output_masks[i])
-                iter_metrics["rewards"].extend(rewards.flatten().cpu().tolist())
+                # calculate rewards, log_probs and values (on frozen policy)
+                mini_batches_log_probs, mini_batches_rewards, mini_batches_values = [], [], []
+                for i, (mini_batch_chat_formatted, mini_batch_completions, mini_batch_output_masks) in enumerate(zip(mini_batches_chat_formatted,
+                                                                                                    mini_batches_completions,
+                                                                                                    mini_batches_output_masks)):
+                    (log_probs, rewards, values) = self.get_log_probs_rewards_values(mini_batch_chat_formatted, mini_batch_completions)
+                    mini_batches_log_probs.append(log_probs.detach())
+                    mini_batches_rewards.append(rewards.detach())
+                    mini_batches_values.append((values * mini_batches_output_masks[i]).detach())
+                    iter_metrics["rewards"].extend(rewards.flatten().cpu().tolist())
 
-            wandb.log({
-                "rewards/mean": np.mean(iter_metrics["rewards"]),
-                "rewards/std": np.std(iter_metrics["rewards"]),
-                "rewards/min": np.min(iter_metrics["rewards"]),
-                "rewards/max": np.max(iter_metrics["rewards"]),
-            }, step=global_step)
-            self._unfreeze_policy()
-
-            
+                wandb.log({
+                    "rewards/mean": np.mean(iter_metrics["rewards"]),
+                    "rewards/std": np.std(iter_metrics["rewards"]),
+                    "rewards/min": np.min(iter_metrics["rewards"]),
+                    "rewards/max": np.max(iter_metrics["rewards"]),
+                }, step=global_step)
 
             for epoch in range(epochs):
 
@@ -431,18 +428,18 @@ class PPOTrainer:
                     # calculate log_probs for unfrozen policy
                     online_policy_log_probs = self.get_completion_log_probs(mini_batch_completions)
                     online_policy_target_log_probs = torch.gather(online_policy_log_probs, dim = -1, index = mini_batch_completions.unsqueeze(-1)).squeeze(-1)
-                    offline_policy_target_log_probs = torch.gather(mini_batch_log_probs, dim = -1, index = mini_batch_completions.unsqueeze(-1)).squeeze(-1)
+                    offline_policy_target_log_probs = torch.gather(mini_batch_log_probs, dim = -1, index = mini_batch_completions.unsqueeze(-1)).squeeze(-1).detach()
 
                     # calculate kl divergence
-                    kl_divergence = self.calculate_kl_divergence(online_policy_log_probs, mini_batch_log_probs)
+                    kl_divergence = self.calculate_kl_divergence(online_policy_log_probs, mini_batch_log_probs).detach()
                     # update rewards, subtracting kl divergence from rewards
-                    rewards = self.get_completion_only_rewards(mini_batch_output_masks, mini_batch_rewards)
+                    rewards = self.get_completion_only_rewards(mini_batch_output_masks, mini_batch_rewards) 
                     rewards -= beta * kl_divergence
-
+                    
                     online_values = self.get_completion_values(mini_batch_completions) * mini_batch_output_masks
 
                     # calculate the advantage for every step, using gae
-                    gae = self.calculate_GAE(rewards, mini_batch_values, gamma, lmbda, mini_batch_output_masks)
+                    gae = self.calculate_GAE(rewards, mini_batch_values, gamma, lmbda, mini_batch_output_masks).detach()
                     likelihood_ratio = torch.exp(online_policy_target_log_probs - offline_policy_target_log_probs)
                     clipped_likelihood_ratio = torch.clamp(likelihood_ratio, 1 - epsilon, 1 + epsilon)
                     loss = torch.min(likelihood_ratio, clipped_likelihood_ratio) * gae
@@ -453,7 +450,8 @@ class PPOTrainer:
                     entropy_loss = self.calculate_entropy(online_policy_log_probs, mini_batch_output_masks)
 
                     # calculate value loss
-                    value_loss = 0.5 * (((online_values - (mini_batch_values + gae)) ** 2).mean())
+                    returns = (mini_batch_values + gae).detach()
+                    value_loss = 0.5 * (((online_values - returns) ** 2).mean())
 
                     total_loss = -loss + value_loss_coef * value_loss - entropy_loss_coef * entropy_loss
                     print(f"Iteration {iter + 1} / {iterations} Epoch {epoch + 1} / {epochs} Total loss: {total_loss.item()}")
@@ -510,6 +508,8 @@ class PPOTrainer:
                             ]
                         )
                         wandb.log({f"samples/completions_iter_{iter}": completion_table}, step=global_step)
+
+                torch.cuda.empty_cache()
         
         wandb.finish()
         print("Training completed!")
