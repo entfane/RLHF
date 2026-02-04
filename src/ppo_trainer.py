@@ -2,7 +2,6 @@ from typing import List, Any, Optional, Dict
 import torch
 import torch.nn.functional as F
 from datasets import Dataset
-from torch.distributions import Categorical
 import numpy as np
 import wandb
 
@@ -283,15 +282,11 @@ class PPOTrainer:
         :return: Normalized entropy
         :rtype: float
         """
-        B, T, _ = log_probs.shape
-        total_entropy = 0
-        for i in range(B):
-            for t in range(T):
-                if mask[i, t] != 0:
-                    distr = Categorical(log_probs[i, t, :])
-                    total_entropy += distr.entropy()
-        total_entropy /= mask.sum()
-        return total_entropy
+        probs = torch.exp(log_probs)
+        entropy = - torch.sum(probs * log_probs, dim = -1)
+        entropy = entropy * mask
+        entropy = entropy.sum() / mask.sum()
+        return entropy
     
     
     def train(self, iterations: int, dataset: Dataset, batch_sampling_percentage: float,
