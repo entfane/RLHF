@@ -3,12 +3,14 @@ import torch
 import torch.nn.functional as F
 from datasets import Dataset
 import numpy as np
+from copy import deepcopy
 import wandb
 
 class PPOTrainer:
 
     def __init__(self, policy, tokenizer, reward_model):
         self.policy = policy
+        self.ref_policy = deepcopy(policy)
         self.tokenizer = tokenizer
         self.reward_model = reward_model
 
@@ -42,10 +44,10 @@ class PPOTrainer:
         :rtype: Tensor
         """
         tokenized_inputs = self.tokenizer(inputs, padding = 'longest', padding_side = "left", return_tensors = "pt").to('cuda')
-        outputs = self.policy.generate(**tokenized_inputs, max_new_tokens = max_new_tokens)
+        outputs = self.ref_policy.generate(**tokenized_inputs, max_new_tokens = max_new_tokens)
         return outputs
 
-    def get_completion_values(self, completion: torch.Tensor) -> torch.Tensor:
+    def get_completion_values(self, model, completion: torch.Tensor) -> torch.Tensor:
         """
         Generates values for the completions
         
@@ -54,10 +56,10 @@ class PPOTrainer:
         :return: A tensor of values for each state
         :rtype: Tensor
         """
-        _, _, values = self.policy(completion)
+        _, _, values = model(completion)
         return values.to("cuda")
     
-    def get_completion_log_probs(self, completion: torch.Tensor) -> torch.Tensor:
+    def get_completion_log_probs(self, model, completion: torch.Tensor) -> torch.Tensor:
         """
         Generates lob probabilities for the completion
         
@@ -66,7 +68,7 @@ class PPOTrainer:
         :return: A tensor of log probabilities for each state
         :rtype: Tensor
         """
-        logits, _, _ = self.policy(completion)
+        logits, _, _ = model(completion)
         log_probs = F.log_softmax(logits, dim = -1)
         return log_probs
 
@@ -158,23 +160,6 @@ class PPOTrainer:
         masked_idx = mask * (idxs)
         last_idx = masked_idx.argmax(dim=1)
         return last_idx
-    
-    def _freeze_policy(self):
-        """
-        Freezes the policy, leaves value head trainable
-        """
-        for param in self.policy.pretrained_model.parameters():
-            param.requires_grad = False
-
-        for param in self.policy.v_head.parameters():
-            param.requires_grad = True
-
-    def _unfreeze_policy(self):
-        """
-        Unfreezes the policy
-        """
-        for param in self.policy.pretrained_model.parameters():
-            param.requires_grad = True
 
     def get_log_probs_rewards_values(self, batch: List[str], completions: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """
@@ -191,8 +176,8 @@ class PPOTrainer:
         _, T = tokenized_inputs.shape
         completions_only = self.tokenizer.batch_decode(completions[:, T:], skip_special_tokens = True)
         rewards = self.reward_model.get_reward(zip(batch, completions_only))
-        log_probs = self.get_completion_log_probs(completions)
-        values = self.get_completion_values(completions)
+        log_probs = self.get_completion_log_probs(self.ref_policy, completions)
+        values = self.get_completion_values(self.ref_policy, completions)
         return (log_probs, rewards, values)
     
     def get_random_batch(self, dataset: Dataset, percentage: float) -> dict:
@@ -353,6 +338,8 @@ class PPOTrainer:
 
         for iter in range(iterations):
 
+            self.ref_policy = deepcopy(self.policy)
+
             if log_wandb:
                 iter_metrics = {
                     "iteration": iter,
@@ -372,42 +359,41 @@ class PPOTrainer:
             global_step = 0
 
             # sample a batch of minibatches
-            with torch.no_grad():
-                batch = self.get_random_batch(dataset, percentage=batch_sampling_percentage)[prompt_col_name]
-                mini_batches = self._get_mini_batches(batch, mini_batch_size=mini_batch_size)
+            batch = self.get_random_batch(dataset, percentage=batch_sampling_percentage)[prompt_col_name]
+            mini_batches = self._get_mini_batches(batch, mini_batch_size=mini_batch_size)
 
-                # perform a rollout on batches
-                mini_batches_chat_formatted = []
-                mini_batches_completions = []
-                mini_batches_output_masks = []
+
+            batches_rollouts = []
+            batches_output_masks = []
+            batches_offline_log_probs = []
+            batches_rewards = []
+            batches_offline_values = []
+            batches_offline_target_log_probs = []
+            with torch.no_grad():
                 for mini_batch in mini_batches:
                     chat_formatted_mini_batch = self.create_chat_batch_from_prompts(mini_batch)
-                    mini_batches_chat_formatted.append(chat_formatted_mini_batch)
                     rollouts = self.rollout(chat_formatted_mini_batch, max_new_tokens=max_new_tokens).detach()
-                    mini_batches_completions.append(rollouts)
-                    mini_batches_output_masks.append(self._get_output_only_mask(chat_formatted_mini_batch, rollouts).detach())
+                    mini_batch_output_masks = self._get_output_only_mask(chat_formatted_mini_batch, rollouts).detach()
+                    (offline_log_probs, rewards, offline_values) = self.get_log_probs_rewards_values(chat_formatted_mini_batch, rollouts)
+                    rollouts = rollouts.cpu()
+                    mini_batch_output_masks = mini_batch_output_masks.cpu()
+                    offline_log_probs = offline_log_probs.cpu()
+                    rewards = rewards.cpu()
+                    offline_values = offline_values.cpu()
+                    offline_target_log_probs = torch.gather(offline_log_probs, dim = -1, index = rollouts.unsqueeze(-1)).squeeze(-1).detach().cpu()
 
-                # calculate rewards, log_probs and values (on frozen policy)
-                mini_batches_log_probs, mini_batches_rewards, mini_batches_values = [], [], []
-                for (mini_batch_chat_formatted, mini_batch_completions, mini_batch_output_masks) in zip(mini_batches_chat_formatted,
-                                                                                                    mini_batches_completions,
-                                                                                                    mini_batches_output_masks):
-                    (log_probs, rewards, values) = self.get_log_probs_rewards_values(mini_batch_chat_formatted, mini_batch_completions)
-                    mini_batches_log_probs.append(log_probs.detach())
-                    mini_batches_rewards.append(rewards.detach())
-                    mini_batches_values.append((values * mini_batch_output_masks).detach())
+                    batches_rollouts.append(rollouts)
+                    batches_output_masks.append(mini_batch_output_masks)
+                    batches_offline_log_probs.append(offline_log_probs)
+                    batches_rewards.append(rewards)
+                    batches_offline_values.append(offline_values)
+                    batches_offline_target_log_probs.append(offline_target_log_probs)
 
-                    if log_wandb:
-                        iter_metrics["rewards"].extend(rewards.flatten().cpu().tolist())
-                if log_wandb:
-                    wandb.log({
-                        "rewards/mean": np.mean(iter_metrics["rewards"]),
-                        "rewards/std": np.std(iter_metrics["rewards"]),
-                        "rewards/min": np.min(iter_metrics["rewards"]),
-                        "rewards/max": np.max(iter_metrics["rewards"]),
-                    }, step=global_step)
+                    del rollouts, mini_batch_output_masks, offline_log_probs, rewards, offline_values, offline_target_log_probs
+                    torch.cuda.empty_cache()
 
             for epoch in range(epochs):
+
                 if log_wandb:
                     epoch_metrics = {
                         "policy_loss": [],
@@ -419,28 +405,40 @@ class PPOTrainer:
                         "approx_kl": [],
                     }
 
-                zip_for_mini_batches = zip(mini_batches_chat_formatted, mini_batches_completions, mini_batches_log_probs,
-                                           mini_batches_rewards, mini_batches_values, mini_batches_output_masks)
+                for step in range(len(mini_batches)):
 
-                for step, (mini_batch_chat_formatted, mini_batch_completions, mini_batch_log_probs, mini_batch_rewards, mini_batch_values, mini_batch_output_masks) in enumerate(zip_for_mini_batches):
+                    # with torch.no_grad():
+                    #     chat_formatted_mini_batch = self.create_chat_batch_from_prompts(mini_batch)
+                    #     rollouts = self.rollout(chat_formatted_mini_batch, max_new_tokens=max_new_tokens).detach()
+                    #     mini_batch_output_masks = self._get_output_only_mask(chat_formatted_mini_batch, rollouts).detach()
+                    #     (offline_log_probs, rewards, offline_values) = self.get_log_probs_rewards_values(chat_formatted_mini_batch, rollouts)
+                    #     offline_target_log_probs = torch.gather(offline_log_probs, dim = -1, index = rollouts.unsqueeze(-1)).squeeze(-1).detach()
+
+                    rollouts = batches_rollouts[step].to('cuda')
+                    mini_batch_output_masks = batches_output_masks[step].to('cuda')
+                    offline_log_probs = batches_offline_log_probs[step].to('cuda')
+                    rewards = batches_rewards[step].to('cuda')
+                    offline_values = batches_offline_values[step].to('cuda')
+                    offline_target_log_probs = batches_offline_target_log_probs[step].to('cuda')
 
                     # calculate log_probs for unfrozen policy
-                    online_policy_log_probs = self.get_completion_log_probs(mini_batch_completions)
-                    online_policy_target_log_probs = torch.gather(online_policy_log_probs, dim = -1, index = mini_batch_completions.unsqueeze(-1)).squeeze(-1)
-                    offline_policy_target_log_probs = torch.gather(mini_batch_log_probs, dim = -1, index = mini_batch_completions.unsqueeze(-1)).squeeze(-1).detach()
+                    online_policy_log_probs = self.get_completion_log_probs(self.policy, rollouts)
+                    online_policy_target_log_probs = torch.gather(online_policy_log_probs, dim = -1, index = rollouts.unsqueeze(-1)).squeeze(-1)
+
 
                     # calculate kl divergence
                     with torch.no_grad():
-                        kl_divergence = self.calculate_kl_divergence(online_policy_log_probs, mini_batch_log_probs)
+                        kl_divergence = self.calculate_kl_divergence(online_policy_log_probs, offline_log_probs)
+
                     # update rewards, subtracting kl divergence from rewards
-                    rewards = self.get_completion_only_rewards(mini_batch_output_masks, mini_batch_rewards) 
+                    rewards = self.get_completion_only_rewards(mini_batch_output_masks, rewards) 
                     rewards -= beta * kl_divergence
                     
-                    online_values = self.get_completion_values(mini_batch_completions) * mini_batch_output_masks
+                    online_values = self.get_completion_values(self.policy, rollouts) * mini_batch_output_masks
 
                     # calculate the advantage for every step, using gae
-                    gae = self.calculate_GAE(rewards, mini_batch_values, gamma, lmbda, mini_batch_output_masks).detach()
-                    likelihood_ratio = torch.exp(online_policy_target_log_probs - offline_policy_target_log_probs)
+                    gae = self.calculate_GAE(rewards, offline_values, gamma, lmbda, mini_batch_output_masks).detach()
+                    likelihood_ratio = torch.exp(online_policy_target_log_probs - offline_target_log_probs)
                     clipped_likelihood_ratio = torch.clamp(likelihood_ratio, 1 - epsilon, 1 + epsilon)
                     loss = torch.min(likelihood_ratio, clipped_likelihood_ratio) * gae
                     
@@ -450,11 +448,11 @@ class PPOTrainer:
                     entropy_loss = self.calculate_entropy(online_policy_log_probs, mini_batch_output_masks)
 
                     # calculate value loss
-                    returns = (mini_batch_values + gae).detach()
+                    returns = (offline_values + gae).detach()
                     value_loss = 0.5 * (((online_values - returns) ** 2).mean())
 
                     total_loss = -loss + value_loss_coef * value_loss - entropy_loss_coef * entropy_loss
-                    print(f"Iteration {iter + 1} / {iterations} Epoch {epoch + 1} / {epochs} Step {step + 1} / {len(mini_batches_chat_formatted)} Total loss: {total_loss.item()}")
+                    print(f"Iteration {iter + 1} / {iterations} Epoch {epoch + 1} / {epochs} Step {step + 1} / {len(mini_batches)} Total loss: {total_loss.item()}")
 
                     optimizer.zero_grad()
 
@@ -465,7 +463,7 @@ class PPOTrainer:
                     if log_wandb:
                         with torch.no_grad():
                             clipping_fraction = ((likelihood_ratio - 1.0).abs() > epsilon).float().mean().item()
-                            approx_kl = (offline_policy_target_log_probs - online_policy_target_log_probs).mean().item()
+                            approx_kl = (offline_target_log_probs - online_policy_target_log_probs).mean().item()
 
                         epoch_metrics["policy_loss"].append(loss.item())
                         epoch_metrics["value_loss"].append(value_loss.item())
@@ -489,8 +487,8 @@ class PPOTrainer:
                             "train/learning_rate": optimizer.param_groups[0]['lr'],
                             "train/value_pred_mean": online_values.mean().item(),
                             "train/value_pred_std": online_values.std().item(),
-                            "train/return_mean": (mini_batch_values + gae).mean().item(),
-                            "train/return_std": (mini_batch_values + gae).std().item(),
+                            "train/return_mean": (offline_values + gae).mean().item(),
+                            "train/return_std": (offline_values + gae).std().item(),
                             "global_step": global_step,
                             "epoch": epoch,
                         }, step=global_step)
@@ -499,7 +497,7 @@ class PPOTrainer:
 
                         if (frequency_of_completion_logging is not None) and (iter % frequency_of_completion_logging == 0):
                             sample_prompts = mini_batches[0][:3]
-                            sample_completions = mini_batches_completions[0][:3]
+                            sample_completions = rollouts[0][:3]
                             
                             completion_table = wandb.Table(
                                 columns=["iteration", "prompt", "completion"],
@@ -509,8 +507,9 @@ class PPOTrainer:
                                 ]
                             )
                             wandb.log({f"samples/completions_iter_{iter}": completion_table}, step=global_step)
-
-                torch.cuda.empty_cache()
+                    del rollouts, mini_batch_output_masks, offline_log_probs, rewards, offline_values, offline_target_log_probs
+                    del online_policy_log_probs, online_policy_target_log_probs, online_values, gae, likelihood_ratio, clipped_likelihood_ratio, kl_divergence, entropy_loss, returns, value_loss, total_loss
+                    torch.cuda.empty_cache()
         
         if log_wandb:
             wandb.finish()
