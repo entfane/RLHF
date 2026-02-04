@@ -56,7 +56,7 @@ class PPOTrainer:
         :rtype: Tensor
         """
         _, _, values = self.policy(completion)
-        return values
+        return values.to("cuda")
     
     def get_completion_log_probs(self, completion: torch.Tensor) -> torch.Tensor:
         """
@@ -394,14 +394,14 @@ class PPOTrainer:
 
                 # calculate rewards, log_probs and values (on frozen policy)
                 mini_batches_log_probs, mini_batches_rewards, mini_batches_values = [], [], []
-                for i, (mini_batch_chat_formatted, mini_batch_completions, mini_batch_output_masks) in enumerate(zip(mini_batches_chat_formatted,
+                for (mini_batch_chat_formatted, mini_batch_completions, mini_batch_output_masks) in zip(mini_batches_chat_formatted,
                                                                                                     mini_batches_completions,
-                                                                                                    mini_batches_output_masks)):
+                                                                                                    mini_batches_output_masks):
                     (log_probs, rewards, values) = self.get_log_probs_rewards_values(mini_batch_chat_formatted, mini_batch_completions)
                     mini_batches_log_probs.append(log_probs.detach())
                     mini_batches_rewards.append(rewards.detach())
-                    mini_batches_values.append((values * mini_batch_output_masks[i]).detach())
-                    
+                    mini_batches_values.append((values * mini_batch_output_masks).detach())
+
                     if log_wandb:
                         iter_metrics["rewards"].extend(rewards.flatten().cpu().tolist())
                 if log_wandb:
@@ -427,7 +427,7 @@ class PPOTrainer:
                 zip_for_mini_batches = zip(mini_batches_chat_formatted, mini_batches_completions, mini_batches_log_probs,
                                            mini_batches_rewards, mini_batches_values, mini_batches_output_masks)
 
-                for (mini_batch_chat_formatted, mini_batch_completions, mini_batch_log_probs, mini_batch_rewards, mini_batch_values, mini_batch_output_masks) in zip_for_mini_batches:
+                for step, (mini_batch_chat_formatted, mini_batch_completions, mini_batch_log_probs, mini_batch_rewards, mini_batch_values, mini_batch_output_masks) in enumerate(zip_for_mini_batches):
 
                     # calculate log_probs for unfrozen policy
                     online_policy_log_probs = self.get_completion_log_probs(mini_batch_completions)
@@ -435,7 +435,8 @@ class PPOTrainer:
                     offline_policy_target_log_probs = torch.gather(mini_batch_log_probs, dim = -1, index = mini_batch_completions.unsqueeze(-1)).squeeze(-1).detach()
 
                     # calculate kl divergence
-                    kl_divergence = self.calculate_kl_divergence(online_policy_log_probs, mini_batch_log_probs).detach()
+                    with torch.no_grad():
+                        kl_divergence = self.calculate_kl_divergence(online_policy_log_probs, mini_batch_log_probs)
                     # update rewards, subtracting kl divergence from rewards
                     rewards = self.get_completion_only_rewards(mini_batch_output_masks, mini_batch_rewards) 
                     rewards -= beta * kl_divergence
@@ -458,7 +459,7 @@ class PPOTrainer:
                     value_loss = 0.5 * (((online_values - returns) ** 2).mean())
 
                     total_loss = -loss + value_loss_coef * value_loss - entropy_loss_coef * entropy_loss
-                    print(f"Iteration {iter + 1} / {iterations} Epoch {epoch + 1} / {epochs} Total loss: {total_loss.item()}")
+                    print(f"Iteration {iter + 1} / {iterations} Epoch {epoch + 1} / {epochs} Step {step + 1} / {len(mini_batches_chat_formatted)} Total loss: {total_loss.item()}")
 
                     optimizer.zero_grad()
 
