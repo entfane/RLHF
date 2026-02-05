@@ -424,11 +424,11 @@ class PPOTrainer:
 
                     # calculate kl divergence
                     with torch.no_grad():
-                        kl_divergence = self.calculate_kl_divergence(online_policy_log_probs, offline_log_probs)
+                        kl_divergence =  beta * self.calculate_kl_divergence(online_policy_log_probs, offline_log_probs)
 
                     # update rewards, subtracting kl divergence from rewards
                     rewards = self.get_completion_only_rewards(mini_batch_output_masks, rewards) 
-                    rewards -= beta * kl_divergence
+                    rewards -= kl_divergence
                     
                     online_values = self.get_completion_values(self.policy, rollouts) * mini_batch_output_masks
 
