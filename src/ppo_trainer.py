@@ -224,7 +224,7 @@ class PPOTrainer:
         """
         kl_divergence = []
         for (online_log_probs, offline_log_probs) in zip(online_policy_log_probs, offline_policy_log_probs):
-            kl_divergence.append(torch.sum(online_log_probs - offline_log_probs, dim = -1))
+            kl_divergence.append(torch.sum(torch.exp(online_log_probs) * (online_log_probs - offline_log_probs), dim = -1))
 
         return torch.stack(kl_divergence, dim=0)
     
@@ -443,14 +443,14 @@ class PPOTrainer:
                     # calculate value loss
                     returns = (offline_values + gae).detach()
                     value_loss = 0.5 * (((online_values - returns) ** 2).mean())
-                    # print(f"Debug step {step}:")
-                    # print(f"  loss: {loss.item()}")
-                    # print(f"  value_loss: {value_loss.item()}")
-                    # print(f"  entropy_loss: {entropy_loss.item()}")
-                    # print(f"  rewards min/max: {rewards.min().item()}/{rewards.max().item()}")
-                    # print(f"  gae min/max: {gae.min().item()}/{gae.max().item()}")
-                    # print(f"  likelihood_ratio min/max: {clipped_likelihood_ratio.min().item()}/{clipped_likelihood_ratio.max().item()}")
-                    # print(f"  kl_divergence: {kl_divergence.mean().item()}")
+                    print(f"Debug step {step}:")
+                    print(f"  loss: {loss.item()}")
+                    print(f"  value_loss: {value_loss.item()}")
+                    print(f"  entropy_loss: {entropy_loss.item()}")
+                    print(f"  rewards min/max: {rewards.min().item()}/{rewards.max().item()}")
+                    print(f"  gae min/max: {gae.min().item()}/{gae.max().item()}")
+                    print(f"  likelihood_ratio min/max: {clipped_likelihood_ratio.min().item()}/{clipped_likelihood_ratio.max().item()}")
+                    print(f"  kl_divergence: {kl_divergence.mean().item()}")
 
                     total_loss = -loss + value_loss_coef * value_loss - entropy_loss_coef * entropy_loss
                     print(f"Iteration {iter + 1} / {iterations} Epoch {epoch + 1} / {epochs} Step {step + 1} / {len(mini_batches)} Total loss: {total_loss.item()}")
