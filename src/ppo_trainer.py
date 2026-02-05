@@ -441,8 +441,8 @@ class PPOTrainer:
                     entropy_loss = self.calculate_entropy(online_policy_log_probs, mini_batch_output_masks)
 
                     # calculate value loss
-                    # returns = (offline_values + gae).detach()
-                    # value_loss = 0.5 * (((online_values - returns) ** 2).mean())
+                    returns = (offline_values + gae).detach()
+                    value_loss = 0.5 * (((online_values - returns) ** 2).mean())
                     # print(f"Debug step {step}:")
                     # print(f"  loss: {loss.item()}")
                     # print(f"  value_loss: {value_loss.item()}")
