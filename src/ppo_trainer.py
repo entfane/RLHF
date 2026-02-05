@@ -2,8 +2,8 @@ from typing import List, Any, Optional, Dict
 import torch
 import torch.nn.functional as F
 from datasets import Dataset
-from torch.distributions import Categorical
 import numpy as np
+from copy import deepcopy
 import wandb
 
 class PPOTrainer:
@@ -13,7 +13,7 @@ class PPOTrainer:
         self.tokenizer = tokenizer
         self.reward_model = reward_model
 
-    def create_chat_batch_from_prompts(self, prompts: List[str]) -> List[str]:
+    def create_chat_batch_from_prompts(self, prompts: List[str], max_input_length: int=128) -> List[str]:
         """
         Generates a list of chat formatted inputs
 
@@ -24,6 +24,8 @@ class PPOTrainer:
         """
         chat_formatted_prompts = []
         for prompt in prompts:
+            tokens = self.tokenizer.encode(prompt, truncation=True, max_length=max_input_length)
+            prompt = self.tokenizer.decode(tokens)
             messages = [{"role": "user", "content": prompt}]
             chat_formatted_prompt = self.tokenizer.apply_chat_template(messages, 
                                                                        add_generation_prompt = True,
@@ -46,7 +48,7 @@ class PPOTrainer:
         outputs = self.policy.generate(**tokenized_inputs, max_new_tokens = max_new_tokens)
         return outputs
 
-    def get_completion_values(self, completion: torch.Tensor) -> torch.Tensor:
+    def get_completion_values(self, model, completion: torch.Tensor) -> torch.Tensor:
         """
         Generates values for the completions
         
@@ -55,10 +57,10 @@ class PPOTrainer:
         :return: A tensor of values for each state
         :rtype: Tensor
         """
-        _, _, values = self.policy(completion)
-        return values
+        _, _, values = model(completion)
+        return values.to("cuda")
     
-    def get_completion_log_probs(self, completion: torch.Tensor) -> torch.Tensor:
+    def get_completion_log_probs(self, model, completion: torch.Tensor) -> torch.Tensor:
         """
         Generates lob probabilities for the completion
         
@@ -67,7 +69,7 @@ class PPOTrainer:
         :return: A tensor of log probabilities for each state
         :rtype: Tensor
         """
-        logits, _, _ = self.policy(completion)
+        logits, _, _ = model(completion)
         log_probs = F.log_softmax(logits, dim = -1)
         return log_probs
 
@@ -159,23 +161,6 @@ class PPOTrainer:
         masked_idx = mask * (idxs)
         last_idx = masked_idx.argmax(dim=1)
         return last_idx
-    
-    def _freeze_policy(self):
-        """
-        Freezes the policy, leaves value head trainable
-        """
-        for param in self.policy.pretrained_model.parameters():
-            param.requires_grad = False
-
-        for param in self.policy.v_head.parameters():
-            param.requires_grad = True
-
-    def _unfreeze_policy(self):
-        """
-        Unfreezes the policy
-        """
-        for param in self.policy.pretrained_model.parameters():
-            param.requires_grad = True
 
     def get_log_probs_rewards_values(self, batch: List[str], completions: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """
@@ -192,8 +177,8 @@ class PPOTrainer:
         _, T = tokenized_inputs.shape
         completions_only = self.tokenizer.batch_decode(completions[:, T:], skip_special_tokens = True)
         rewards = self.reward_model.get_reward(zip(batch, completions_only))
-        log_probs = self.get_completion_log_probs(completions)
-        values = self.get_completion_values(completions)
+        log_probs = self.get_completion_log_probs(self.policy, completions)
+        values = self.get_completion_values(self.policy, completions)
         return (log_probs, rewards, values)
     
     def get_random_batch(self, dataset: Dataset, percentage: float) -> dict:
@@ -283,22 +268,19 @@ class PPOTrainer:
         :return: Normalized entropy
         :rtype: float
         """
-        B, T, _ = log_probs.shape
-        total_entropy = 0
-        for i in range(B):
-            for t in range(T):
-                if mask[i, t] != 0:
-                    distr = Categorical(log_probs[i, t, :])
-                    total_entropy += distr.entropy()
-        total_entropy /= mask.sum()
-        return total_entropy
+        probs = torch.exp(log_probs)
+        entropy = - torch.sum(probs * log_probs, dim = -1)
+        entropy = entropy * mask
+        entropy = entropy.sum() / mask.sum()
+        return entropy
     
     
     def train(self, iterations: int, dataset: Dataset, batch_sampling_percentage: float,
               mini_batch_size: int, epochs: int, max_new_tokens: int, prompt_col_name: str,
-              gamma: float, lmbda: float, epsilon: float, value_loss_coef: float, entropy_loss_coef: float,
+              beta: float, gamma: float, lmbda: float, epsilon: float, value_loss_coef: float, entropy_loss_coef: float,
               wandb_project: Optional[str] = "rlhf-training", wandb_run_name: Optional[str] = None,
-              frequency_of_completion_logging: Optional[int] = None):
+              frequency_of_completion_logging: Optional[int] = None, log_wandb: Optional[bool] = False,
+              max_input_length: Optional[int] = None):
         
         """
         Main RLHF training loop
@@ -317,6 +299,8 @@ class PPOTrainer:
         :type max_new_tokens: int
         :param prompt_col_name: Name of the column with prompts
         :type prompt_col_name: str
+        :param beta: Coefficient for KL divergence penalty
+        :type beta: float
         :param gamma: Gamma parameter in GAE
         :type gamma: float
         :param lmbda: Lambda parameter in GAE
@@ -328,120 +312,126 @@ class PPOTrainer:
         :param entropy_loss_coef: Coefficient for value loss in totall loss function
         :type entropy_loss_coef: float
         """
+        if log_wandb:
+            config = {
+                "iterations": iterations,
+                "batch_sampling_percentage": batch_sampling_percentage,
+                "mini_batch_size": mini_batch_size,
+                "epochs": epochs,
+                "max_new_tokens": max_new_tokens,
+                "gamma": gamma,
+                "lambda": lmbda,
+                "epsilon": epsilon,
+                "value_loss_coef": value_loss_coef,
+                "entropy_loss_coef": entropy_loss_coef,
+                "dataset_size": len(dataset),
+            }
 
-        config = {
-            "iterations": iterations,
-            "batch_sampling_percentage": batch_sampling_percentage,
-            "mini_batch_size": mini_batch_size,
-            "epochs": epochs,
-            "max_new_tokens": max_new_tokens,
-            "gamma": gamma,
-            "lambda": lmbda,
-            "epsilon": epsilon,
-            "value_loss_coef": value_loss_coef,
-            "entropy_loss_coef": entropy_loss_coef,
-            "dataset_size": len(dataset),
-        }
+            wandb.init(
+                project=wandb_project,
+                name=wandb_run_name,
+                config=config
+            )
 
-        wandb.init(
-            project=wandb_project,
-            name=wandb_run_name,
-            config=config
-        )
-
-        wandb.watch(self.policy.pretrained_model, log="gradients", log_freq=100, log_graph=False)
-        wandb.watch(self.policy.v_head, log="gradients", log_freq=100, log_graph=False)
+            wandb.watch(self.policy.pretrained_model, log="gradients", log_freq=100, log_graph=False)
+            wandb.watch(self.policy.v_head, log="gradients", log_freq=100, log_graph=False)
 
         optimizer = torch.optim.Adam(self.policy.parameters())
 
         for iter in range(iterations):
 
-            iter_metrics = {
-                "iteration": iter,
-                "policy_losses": [],
-                "value_losses": [],
-                "entropy_losses": [],
-                "total_losses": [],
-                "kl_divergences": [],
-                "rewards": [],
-                "advantages": [],
-                "likelihood_ratios": [],
-                "clipping_fractions": [],
-                "value_predictions": [],
-                "explained_variance": [],
-            }
+            if log_wandb:
+                iter_metrics = {
+                    "iteration": iter,
+                    "policy_losses": [],
+                    "value_losses": [],
+                    "entropy_losses": [],
+                    "total_losses": [],
+                    "kl_divergences": [],
+                    "rewards": [],
+                    "advantages": [],
+                    "likelihood_ratios": [],
+                    "clipping_fractions": [],
+                    "value_predictions": [],
+                    "explained_variance": [],
+                }
+
             global_step = 0
 
             # sample a batch of minibatches
-            self._freeze_policy()
             batch = self.get_random_batch(dataset, percentage=batch_sampling_percentage)[prompt_col_name]
             mini_batches = self._get_mini_batches(batch, mini_batch_size=mini_batch_size)
 
-            # perform a rollout on batches
-            mini_batches_chat_formatted = []
-            mini_batches_completions = []
-            mini_batches_output_masks = []
-            for mini_batch in mini_batches:
-                chat_formatted_mini_batch = self.create_chat_batch_from_prompts(mini_batch)
-                mini_batches_chat_formatted.append(chat_formatted_mini_batch)
-                rollouts = self.rollout(chat_formatted_mini_batch, max_new_tokens=max_new_tokens)
-                mini_batches_completions.append(rollouts)
-                mini_batches_output_masks.append(self._get_output_only_mask(chat_formatted_mini_batch, rollouts))
 
-            # calculate rewards, log_probs and values (on frozen policy)
-            mini_batches_log_probs, mini_batches_rewards, mini_batches_values = [], [], []
-            for i, (mini_batch_chat_formatted, mini_batch_completions, mini_batch_output_masks) in enumerate(zip(mini_batches_chat_formatted,
-                                                                                                   mini_batches_completions,
-                                                                                                   mini_batches_output_masks)):
-                (log_probs, rewards, values) = self.get_log_probs_rewards_values(mini_batch_chat_formatted, mini_batch_completions)
-                mini_batches_log_probs.append(log_probs)
-                mini_batches_rewards.append(rewards)
-                mini_batches_values.append(values * mini_batches_output_masks[i])
-                iter_metrics["rewards"].extend(rewards.flatten().cpu().tolist())
+            batches_rollouts = []
+            batches_output_masks = []
+            batches_offline_log_probs = []
+            batches_rewards = []
+            batches_offline_values = []
+            batches_offline_target_log_probs = []
+            with torch.no_grad():
+                for mini_batch in mini_batches:
+                    chat_formatted_mini_batch = self.create_chat_batch_from_prompts(mini_batch, max_input_length = max_input_length)
+                    rollouts = self.rollout(chat_formatted_mini_batch, max_new_tokens=max_new_tokens).detach()
+                    mini_batch_output_masks = self._get_output_only_mask(chat_formatted_mini_batch, rollouts).detach()
+                    (offline_log_probs, rewards, offline_values) = self.get_log_probs_rewards_values(chat_formatted_mini_batch, rollouts)
+                    rollouts = rollouts.cpu()
+                    mini_batch_output_masks = mini_batch_output_masks.cpu()
+                    offline_log_probs = offline_log_probs.cpu()
+                    rewards = rewards.cpu()
+                    offline_values = offline_values.cpu()
+                    offline_target_log_probs = torch.gather(offline_log_probs, dim = -1, index = rollouts.unsqueeze(-1)).squeeze(-1).detach().cpu()
 
-            wandb.log({
-                "rewards/mean": np.mean(iter_metrics["rewards"]),
-                "rewards/std": np.std(iter_metrics["rewards"]),
-                "rewards/min": np.min(iter_metrics["rewards"]),
-                "rewards/max": np.max(iter_metrics["rewards"]),
-            }, step=global_step)
-            self._unfreeze_policy()
+                    batches_rollouts.append(rollouts)
+                    batches_output_masks.append(mini_batch_output_masks)
+                    batches_offline_log_probs.append(offline_log_probs)
+                    batches_rewards.append(rewards)
+                    batches_offline_values.append(offline_values)
+                    batches_offline_target_log_probs.append(offline_target_log_probs)
 
-            
+                    del rollouts, mini_batch_output_masks, offline_log_probs, rewards, offline_values, offline_target_log_probs
+                    torch.cuda.empty_cache()
 
             for epoch in range(epochs):
 
-                epoch_metrics = {
-                    "policy_loss": [],
-                    "value_loss": [],
-                    "entropy_loss": [],
-                    "total_loss": [],
-                    "kl_div": [],
-                    "clip_frac": [],
-                    "approx_kl": [],
-                }
+                if log_wandb:
+                    epoch_metrics = {
+                        "policy_loss": [],
+                        "value_loss": [],
+                        "entropy_loss": [],
+                        "total_loss": [],
+                        "kl_div": [],
+                        "clip_frac": [],
+                        "approx_kl": [],
+                    }
 
-                zip_for_mini_batches = zip(mini_batches_chat_formatted, mini_batches_completions, mini_batches_log_probs,
-                                           mini_batches_rewards, mini_batches_values, mini_batches_output_masks)
+                for step in range(len(mini_batches)):
 
-                for (mini_batch_chat_formatted, mini_batch_completions, mini_batch_log_probs, mini_batch_rewards, mini_batch_values, mini_batch_output_masks) in zip_for_mini_batches:
+                    rollouts = batches_rollouts[step].to('cuda')
+                    mini_batch_output_masks = batches_output_masks[step].to('cuda')
+                    offline_log_probs = batches_offline_log_probs[step].to('cuda')
+                    rewards = batches_rewards[step].to('cuda')
+                    offline_values = batches_offline_values[step].to('cuda')
+                    offline_target_log_probs = batches_offline_target_log_probs[step].to('cuda')
 
                     # calculate log_probs for unfrozen policy
-                    online_policy_log_probs = self.get_completion_log_probs(mini_batch_completions)
-                    online_policy_target_log_probs = torch.gather(online_policy_log_probs, dim = -1, index = mini_batch_completions.unsqueeze(-1)).squeeze(-1)
-                    offline_policy_target_log_probs = torch.gather(mini_batch_log_probs, dim = -1, index = mini_batch_completions.unsqueeze(-1)).squeeze(-1)
+                    online_policy_log_probs = self.get_completion_log_probs(self.policy, rollouts)
+                    online_policy_target_log_probs = torch.gather(online_policy_log_probs, dim = -1, index = rollouts.unsqueeze(-1)).squeeze(-1)
+
 
                     # calculate kl divergence
-                    kl_divergence = self.calculate_kl_divergence(online_policy_log_probs, mini_batch_log_probs)
-                    # update rewards, subtracting kl divergence from rewards
-                    rewards = self.get_completion_only_rewards(mini_batch_output_masks, mini_batch_rewards)
-                    rewards -= kl_divergence
+                    with torch.no_grad():
+                        kl_divergence = self.calculate_kl_divergence(online_policy_log_probs, offline_log_probs)
 
-                    online_values = self.get_completion_values(mini_batch_completions) * mini_batch_output_masks
+                    # update rewards, subtracting kl divergence from rewards
+                    rewards = self.get_completion_only_rewards(mini_batch_output_masks, rewards) 
+                    rewards -= beta * kl_divergence
+                    
+                    online_values = self.get_completion_values(self.policy, rollouts) * mini_batch_output_masks
 
                     # calculate the advantage for every step, using gae
-                    gae = self.calculate_GAE(rewards, mini_batch_values, gamma, lmbda, mini_batch_output_masks)
-                    likelihood_ratio = torch.exp(online_policy_target_log_probs - offline_policy_target_log_probs)
+                    gae = self.calculate_GAE(rewards, offline_values, gamma, lmbda, mini_batch_output_masks).detach()
+                    likelihood_ratio = torch.exp(online_policy_target_log_probs - offline_target_log_probs)
                     clipped_likelihood_ratio = torch.clamp(likelihood_ratio, 1 - epsilon, 1 + epsilon)
                     loss = torch.min(likelihood_ratio, clipped_likelihood_ratio) * gae
                     
@@ -451,65 +441,78 @@ class PPOTrainer:
                     entropy_loss = self.calculate_entropy(online_policy_log_probs, mini_batch_output_masks)
 
                     # calculate value loss
-                    value_loss = 0.5 * (((online_values - (mini_batch_values + gae)) ** 2).mean())
+                    returns = (offline_values + gae).detach()
+                    value_loss = 0.5 * (((online_values - returns) ** 2).mean())
+                    # print(f"Debug step {step}:")
+                    # print(f"  loss: {loss.item()}")
+                    # print(f"  value_loss: {value_loss.item()}")
+                    # print(f"  entropy_loss: {entropy_loss.item()}")
+                    # print(f"  rewards min/max: {rewards.min().item()}/{rewards.max().item()}")
+                    # print(f"  gae min/max: {gae.min().item()}/{gae.max().item()}")
+                    # print(f"  likelihood_ratio min/max: {clipped_likelihood_ratio.min().item()}/{clipped_likelihood_ratio.max().item()}")
+                    # print(f"  kl_divergence: {kl_divergence.mean().item()}")
 
                     total_loss = -loss + value_loss_coef * value_loss - entropy_loss_coef * entropy_loss
-                    print(f"Iteration {iter + 1} / {iterations} Epoch {epoch + 1} / {epochs} Total loss: {total_loss.item()}")
+                    print(f"Iteration {iter + 1} / {iterations} Epoch {epoch + 1} / {epochs} Step {step + 1} / {len(mini_batches)} Total loss: {total_loss.item()}")
 
                     optimizer.zero_grad()
 
                     total_loss.backward()
 
                     optimizer.step()
+                    if log_wandb:
+                        with torch.no_grad():
+                            clipping_fraction = ((likelihood_ratio - 1.0).abs() > epsilon).float().mean().item()
+                            approx_kl = (offline_target_log_probs - online_policy_target_log_probs).mean().item()
 
-                    with torch.no_grad():
-                        clipping_fraction = ((likelihood_ratio - 1.0).abs() > epsilon).float().mean().item()
-                        approx_kl = (offline_policy_target_log_probs - online_policy_target_log_probs).mean().item()
+                        epoch_metrics["policy_loss"].append(loss.item())
+                        epoch_metrics["value_loss"].append(value_loss.item())
+                        epoch_metrics["entropy_loss"].append(entropy_loss.item())
+                        epoch_metrics["total_loss"].append(total_loss.item())
+                        epoch_metrics["kl_div"].append(kl_divergence.mean().item())
+                        epoch_metrics["approx_kl"].append(approx_kl)
+                        epoch_metrics["clip_frac"].append(clipping_fraction)
 
-                    epoch_metrics["policy_loss"].append(loss.item())
-                    epoch_metrics["value_loss"].append(value_loss.item())
-                    epoch_metrics["entropy_loss"].append(entropy_loss.item())
-                    epoch_metrics["total_loss"].append(total_loss.item())
-                    epoch_metrics["kl_div"].append(kl_divergence.mean().item())
-                    epoch_metrics["approx_kl"].append(approx_kl)
-                    epoch_metrics["clip_frac"].append(clipping_fraction)
+                        wandb.log({
+                            "train/policy_loss": loss.item(),
+                            "train/value_loss": value_loss.item(),
+                            "train/entropy_loss": entropy_loss.item(),
+                            "train/total_loss": total_loss.item(),
+                            "train/kl_divergence": kl_divergence.mean().item(),
+                            "train/clipping_fraction": clipping_fraction,
+                            "train/approx_kl": approx_kl,
+                            "train/likelihood_ratio_mean": likelihood_ratio.mean().item(),
+                            "train/advantage_mean": gae.mean().item(),
+                            "train/advantage_std": gae.std().item(),
+                            "train/learning_rate": optimizer.param_groups[0]['lr'],
+                            "train/value_pred_mean": online_values.mean().item(),
+                            "train/value_pred_std": online_values.std().item(),
+                            "train/return_mean": (offline_values + gae).mean().item(),
+                            "train/return_std": (offline_values + gae).std().item(),
+                            "global_step": global_step,
+                            "epoch": epoch,
+                        }, step=global_step)
+                    
+                        global_step += 1
 
-                    wandb.log({
-                        "train/policy_loss": loss.item(),
-                        "train/value_loss": value_loss.item(),
-                        "train/entropy_loss": entropy_loss.item(),
-                        "train/total_loss": total_loss.item(),
-                        "train/kl_divergence": kl_divergence.mean().item(),
-                        "train/clipping_fraction": clipping_fraction,
-                        "train/approx_kl": approx_kl,
-                        "train/likelihood_ratio_mean": likelihood_ratio.mean().item(),
-                        "train/advantage_mean": gae.mean().item(),
-                        "train/advantage_std": gae.std().item(),
-                        "train/learning_rate": optimizer.param_groups[0]['lr'],
-                        "train/value_pred_mean": online_values.mean().item(),
-                        "train/value_pred_std": online_values.std().item(),
-                        "train/return_mean": (mini_batch_values + gae).mean().item(),
-                        "train/return_std": (mini_batch_values + gae).std().item(),
-                        "global_step": global_step,
-                        "epoch": epoch,
-                    }, step=global_step)
-                
-                    global_step += 1
-
-                    if (frequency_of_completion_logging is not None) and (iter % frequency_of_completion_logging == 0):
-                        sample_prompts = mini_batches[0][:3]
-                        sample_completions = mini_batches_completions[0][:3]
-                        
-                        completion_table = wandb.Table(
-                            columns=["iteration", "prompt", "completion"],
-                            data=[
-                                [iter, prompt, self.tokenizer.decode(completion)]
-                                for prompt, completion in zip(sample_prompts, sample_completions)
-                            ]
-                        )
-                        wandb.log({f"samples/completions_iter_{iter}": completion_table}, step=global_step)
+                        if (frequency_of_completion_logging is not None) and (iter % frequency_of_completion_logging == 0):
+                            sample_prompts = mini_batches[0][:3]
+                            sample_completions = rollouts[0][:3]
+                            
+                            completion_table = wandb.Table(
+                                columns=["iteration", "prompt", "completion"],
+                                data=[
+                                    [iter, prompt, self.tokenizer.decode(completion)]
+                                    for prompt, completion in zip(sample_prompts, sample_completions)
+                                ]
+                            )
+                            wandb.log({f"samples/completions_iter_{iter}": completion_table}, step=global_step)
+                    del rollouts, mini_batch_output_masks, offline_log_probs, rewards, offline_values, offline_target_log_probs
+                    del online_policy_log_probs, online_policy_target_log_probs, online_values, gae, likelihood_ratio, clipped_likelihood_ratio, kl_divergence, entropy_loss, returns, value_loss, total_loss
+                    torch.cuda.empty_cache()
         
-        wandb.finish()
+        if log_wandb:
+            wandb.finish()
         print("Training completed!")
 
         

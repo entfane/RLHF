@@ -8,6 +8,7 @@ class RewardModel:
         self.model = AutoModelForSequenceClassification.from_pretrained(reward_model_name, device_map = "auto", num_labels=1)
         self.tokenizer = AutoTokenizer.from_pretrained(reward_model_name)
 
+    @torch.no_grad()
     def get_reward(self, prompt_response_pairs: List[Tuple[str, str]]):
         inputs = []
         for prompt, response in prompt_response_pairs:

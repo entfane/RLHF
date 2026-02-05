@@ -5,9 +5,10 @@ REWARD_MODEL_NAME="Skywork/Skywork-Reward-V2-Qwen3-0.6B"
 DATASET="TuringEnterprises/Turing-Open-Reasoning"
 DATASET_SPLIT="train"
 PROMPT_COLUMN="question"
+BETA=0.01
 ITERATIONS=1
-BATCH_SAMPLING_PERCENTAGE=0.1
-MINI_BATCH_SIZE=1
+BATCH_SAMPLING_PERCENTAGE=1
+MINI_BATCH_SIZE=2
 EPOCHS=1
 MAX_NEW_TOKENS=128
 GAMMA=0.98
@@ -33,4 +34,5 @@ python src/main.py \
     --epsilon "$EPSILON" \
     --value_loss_coef "$VALUE_LOSS_COEF" \
     --entropy_loss_coef "$ENTROPY_LOSS_COEF" \
-    --frequency_of_completion_logging "$FREQUENCY_OF_COMPLETION_LOGGING"
+    --frequency_of_completion_logging "$FREQUENCY_OF_COMPLETION_LOGGING" \
+    --beta "$BETA"
