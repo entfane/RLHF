@@ -268,8 +268,11 @@ class PPOTrainer:
         :return: Normalized entropy
         :rtype: float
         """
-        probs = torch.exp(log_probs)
-        entropy = - torch.sum(probs * log_probs, dim = -1)
+        probs = torch.exp(log_probs).clamp(min = 1e-10, max=1.0)
+        # clamp probs in case of -inf log_prob
+        safe_log_probs = log_probs.clamp(min = -20, max = 0)
+        
+        entropy = - torch.sum(probs * safe_log_probs, dim = -1)
         entropy = entropy * mask
         entropy = entropy.sum() / mask.sum()
         return entropy
