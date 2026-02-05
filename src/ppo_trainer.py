@@ -10,11 +10,10 @@ class PPOTrainer:
 
     def __init__(self, policy, tokenizer, reward_model):
         self.policy = policy
-        self.ref_policy = deepcopy(policy)
         self.tokenizer = tokenizer
         self.reward_model = reward_model
 
-    def create_chat_batch_from_prompts(self, prompts: List[str]) -> List[str]:
+    def create_chat_batch_from_prompts(self, prompts: List[str], max_input_length: int=128) -> List[str]:
         """
         Generates a list of chat formatted inputs
 
@@ -25,6 +24,8 @@ class PPOTrainer:
         """
         chat_formatted_prompts = []
         for prompt in prompts:
+            tokens = self.tokenizer.encode(prompt, truncation=True, max_length=max_input_length)
+            prompt = self.tokenizer.decode(tokens)
             messages = [{"role": "user", "content": prompt}]
             chat_formatted_prompt = self.tokenizer.apply_chat_template(messages, 
                                                                        add_generation_prompt = True,
@@ -44,7 +45,7 @@ class PPOTrainer:
         :rtype: Tensor
         """
         tokenized_inputs = self.tokenizer(inputs, padding = 'longest', padding_side = "left", return_tensors = "pt").to('cuda')
-        outputs = self.ref_policy.generate(**tokenized_inputs, max_new_tokens = max_new_tokens)
+        outputs = self.policy.generate(**tokenized_inputs, max_new_tokens = max_new_tokens)
         return outputs
 
     def get_completion_values(self, model, completion: torch.Tensor) -> torch.Tensor:
@@ -176,8 +177,8 @@ class PPOTrainer:
         _, T = tokenized_inputs.shape
         completions_only = self.tokenizer.batch_decode(completions[:, T:], skip_special_tokens = True)
         rewards = self.reward_model.get_reward(zip(batch, completions_only))
-        log_probs = self.get_completion_log_probs(self.ref_policy, completions)
-        values = self.get_completion_values(self.ref_policy, completions)
+        log_probs = self.get_completion_log_probs(self.policy, completions)
+        values = self.get_completion_values(self.policy, completions)
         return (log_probs, rewards, values)
     
     def get_random_batch(self, dataset: Dataset, percentage: float) -> dict:
@@ -278,7 +279,8 @@ class PPOTrainer:
               mini_batch_size: int, epochs: int, max_new_tokens: int, prompt_col_name: str,
               beta: float, gamma: float, lmbda: float, epsilon: float, value_loss_coef: float, entropy_loss_coef: float,
               wandb_project: Optional[str] = "rlhf-training", wandb_run_name: Optional[str] = None,
-              frequency_of_completion_logging: Optional[int] = None, log_wandb: Optional[bool] = False):
+              frequency_of_completion_logging: Optional[int] = None, log_wandb: Optional[bool] = False,
+              max_input_length: Optional[int] = None):
         
         """
         Main RLHF training loop
@@ -338,8 +340,6 @@ class PPOTrainer:
 
         for iter in range(iterations):
 
-            self.ref_policy = deepcopy(self.policy)
-
             if log_wandb:
                 iter_metrics = {
                     "iteration": iter,
@@ -371,7 +371,7 @@ class PPOTrainer:
             batches_offline_target_log_probs = []
             with torch.no_grad():
                 for mini_batch in mini_batches:
-                    chat_formatted_mini_batch = self.create_chat_batch_from_prompts(mini_batch)
+                    chat_formatted_mini_batch = self.create_chat_batch_from_prompts(mini_batch, max_input_length = max_input_length)
                     rollouts = self.rollout(chat_formatted_mini_batch, max_new_tokens=max_new_tokens).detach()
                     mini_batch_output_masks = self._get_output_only_mask(chat_formatted_mini_batch, rollouts).detach()
                     (offline_log_probs, rewards, offline_values) = self.get_log_probs_rewards_values(chat_formatted_mini_batch, rollouts)
@@ -407,13 +407,6 @@ class PPOTrainer:
 
                 for step in range(len(mini_batches)):
 
-                    # with torch.no_grad():
-                    #     chat_formatted_mini_batch = self.create_chat_batch_from_prompts(mini_batch)
-                    #     rollouts = self.rollout(chat_formatted_mini_batch, max_new_tokens=max_new_tokens).detach()
-                    #     mini_batch_output_masks = self._get_output_only_mask(chat_formatted_mini_batch, rollouts).detach()
-                    #     (offline_log_probs, rewards, offline_values) = self.get_log_probs_rewards_values(chat_formatted_mini_batch, rollouts)
-                    #     offline_target_log_probs = torch.gather(offline_log_probs, dim = -1, index = rollouts.unsqueeze(-1)).squeeze(-1).detach()
-
                     rollouts = batches_rollouts[step].to('cuda')
                     mini_batch_output_masks = batches_output_masks[step].to('cuda')
                     offline_log_probs = batches_offline_log_probs[step].to('cuda')
@@ -448,8 +441,16 @@ class PPOTrainer:
                     entropy_loss = self.calculate_entropy(online_policy_log_probs, mini_batch_output_masks)
 
                     # calculate value loss
-                    returns = (offline_values + gae).detach()
-                    value_loss = 0.5 * (((online_values - returns) ** 2).mean())
+                    # returns = (offline_values + gae).detach()
+                    # value_loss = 0.5 * (((online_values - returns) ** 2).mean())
+                    # print(f"Debug step {step}:")
+                    # print(f"  loss: {loss.item()}")
+                    # print(f"  value_loss: {value_loss.item()}")
+                    # print(f"  entropy_loss: {entropy_loss.item()}")
+                    # print(f"  rewards min/max: {rewards.min().item()}/{rewards.max().item()}")
+                    # print(f"  gae min/max: {gae.min().item()}/{gae.max().item()}")
+                    # print(f"  likelihood_ratio min/max: {clipped_likelihood_ratio.min().item()}/{clipped_likelihood_ratio.max().item()}")
+                    # print(f"  kl_divergence: {kl_divergence.mean().item()}")
 
                     total_loss = -loss + value_loss_coef * value_loss - entropy_loss_coef * entropy_loss
                     print(f"Iteration {iter + 1} / {iterations} Epoch {epoch + 1} / {epochs} Step {step + 1} / {len(mini_batches)} Total loss: {total_loss.item()}")
@@ -459,7 +460,6 @@ class PPOTrainer:
                     total_loss.backward()
 
                     optimizer.step()
-
                     if log_wandb:
                         with torch.no_grad():
                             clipping_fraction = ((likelihood_ratio - 1.0).abs() > epsilon).float().mean().item()
