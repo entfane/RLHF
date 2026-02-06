@@ -224,7 +224,7 @@ class PPOTrainer:
         """
         kl_divergence = []
         for (online_log_probs, offline_log_probs) in zip(online_policy_log_probs, offline_policy_log_probs):
-            kl_divergence.append(torch.sum(online_log_probs - offline_log_probs, dim = -1))
+            kl_divergence.append(torch.sum(torch.exp(online_log_probs) * (online_log_probs - offline_log_probs), dim = -1))
 
         return torch.stack(kl_divergence, dim=0)
     
@@ -268,8 +268,11 @@ class PPOTrainer:
         :return: Normalized entropy
         :rtype: float
         """
-        probs = torch.exp(log_probs)
-        entropy = - torch.sum(probs * log_probs, dim = -1)
+        probs = torch.exp(log_probs).clamp(min = 1e-10, max=1.0)
+        # clamp probs in case of -inf log_prob
+        safe_log_probs = log_probs.clamp(min = -20, max = 0)
+        
+        entropy = - torch.sum(probs * safe_log_probs, dim = -1)
         entropy = entropy * mask
         entropy = entropy.sum() / mask.sum()
         return entropy
@@ -280,7 +283,7 @@ class PPOTrainer:
               beta: float, gamma: float, lmbda: float, epsilon: float, value_loss_coef: float, entropy_loss_coef: float,
               wandb_project: Optional[str] = "rlhf-training", wandb_run_name: Optional[str] = None,
               frequency_of_completion_logging: Optional[int] = None, log_wandb: Optional[bool] = False,
-              max_input_length: Optional[int] = None):
+              max_input_length: Optional[int] = None, lr: float = 1e-6):
         
         """
         Main RLHF training loop
@@ -336,7 +339,8 @@ class PPOTrainer:
             wandb.watch(self.policy.pretrained_model, log="gradients", log_freq=100, log_graph=False)
             wandb.watch(self.policy.v_head, log="gradients", log_freq=100, log_graph=False)
 
-        optimizer = torch.optim.Adam(self.policy.parameters())
+        optimizer = torch.optim.Adam(self.policy.parameters(), lr=lr)
+        global_step = 0
 
         for iter in range(iterations):
 
@@ -356,7 +360,6 @@ class PPOTrainer:
                     "explained_variance": [],
                 }
 
-            global_step = 0
 
             # sample a batch of minibatches
             batch = self.get_random_batch(dataset, percentage=batch_sampling_percentage)[prompt_col_name]
@@ -421,11 +424,11 @@ class PPOTrainer:
 
                     # calculate kl divergence
                     with torch.no_grad():
-                        kl_divergence = self.calculate_kl_divergence(online_policy_log_probs, offline_log_probs)
+                        kl_divergence =  beta * self.calculate_kl_divergence(online_policy_log_probs, offline_log_probs)
 
                     # update rewards, subtracting kl divergence from rewards
                     rewards = self.get_completion_only_rewards(mini_batch_output_masks, rewards) 
-                    rewards -= beta * kl_divergence
+                    rewards -= kl_divergence
                     
                     online_values = self.get_completion_values(self.policy, rollouts) * mini_batch_output_masks
 
@@ -443,14 +446,14 @@ class PPOTrainer:
                     # calculate value loss
                     returns = (offline_values + gae).detach()
                     value_loss = 0.5 * (((online_values - returns) ** 2).mean())
-                    # print(f"Debug step {step}:")
-                    # print(f"  loss: {loss.item()}")
-                    # print(f"  value_loss: {value_loss.item()}")
-                    # print(f"  entropy_loss: {entropy_loss.item()}")
-                    # print(f"  rewards min/max: {rewards.min().item()}/{rewards.max().item()}")
-                    # print(f"  gae min/max: {gae.min().item()}/{gae.max().item()}")
-                    # print(f"  likelihood_ratio min/max: {clipped_likelihood_ratio.min().item()}/{clipped_likelihood_ratio.max().item()}")
-                    # print(f"  kl_divergence: {kl_divergence.mean().item()}")
+                    print(f"Debug step {step}:")
+                    print(f"  loss: {loss.item()}")
+                    print(f"  value_loss: {value_loss.item()}")
+                    print(f"  entropy_loss: {entropy_loss.item()}")
+                    print(f"  rewards min/max: {rewards.min().item()}/{rewards.max().item()}")
+                    print(f"  gae min/max: {gae.min().item()}/{gae.max().item()}")
+                    print(f"  likelihood_ratio min/max: {clipped_likelihood_ratio.min().item()}/{clipped_likelihood_ratio.max().item()}")
+                    print(f"  kl_divergence: {kl_divergence.mean().item()}")
 
                     total_loss = -loss + value_loss_coef * value_loss - entropy_loss_coef * entropy_loss
                     print(f"Iteration {iter + 1} / {iterations} Epoch {epoch + 1} / {epochs} Step {step + 1} / {len(mini_batches)} Total loss: {total_loss.item()}")
@@ -495,18 +498,18 @@ class PPOTrainer:
                     
                         global_step += 1
 
-                        if (frequency_of_completion_logging is not None) and (iter % frequency_of_completion_logging == 0):
-                            sample_prompts = mini_batches[0][:3]
-                            sample_completions = rollouts[0][:3]
+                        # if (frequency_of_completion_logging is not None) and (iter % frequency_of_completion_logging == 0):
+                        #     sample_prompts = mini_batches[0][:3]
+                        #     sample_completions = rollouts[0][:3]
                             
-                            completion_table = wandb.Table(
-                                columns=["iteration", "prompt", "completion"],
-                                data=[
-                                    [iter, prompt, self.tokenizer.decode(completion)]
-                                    for prompt, completion in zip(sample_prompts, sample_completions)
-                                ]
-                            )
-                            wandb.log({f"samples/completions_iter_{iter}": completion_table}, step=global_step)
+                        #     completion_table = wandb.Table(
+                        #         columns=["iteration", "prompt", "completion"],
+                        #         data=[
+                        #             [iter, prompt, self.tokenizer.decode(completion)]
+                        #             for prompt, completion in zip(sample_prompts, sample_completions)
+                        #         ]
+                        #     )
+                        #     wandb.log({f"samples/completions_iter_{iter}": completion_table}, step=global_step)
                     del rollouts, mini_batch_output_masks, offline_log_probs, rewards, offline_values, offline_target_log_probs
                     del online_policy_log_probs, online_policy_target_log_probs, online_values, gae, likelihood_ratio, clipped_likelihood_ratio, kl_divergence, entropy_loss, returns, value_loss, total_loss
                     torch.cuda.empty_cache()
