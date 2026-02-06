@@ -2,15 +2,15 @@
 
 MODEL_NAME="HuggingFaceTB/SmolLM2-135M-Instruct"
 REWARD_MODEL_NAME="Skywork/Skywork-Reward-V2-Qwen3-0.6B"
-DATASET="TuringEnterprises/Turing-Open-Reasoning"
+DATASET="argilla/ultrafeedback-binarized-preferences-cleaned"
 DATASET_SPLIT="train"
-PROMPT_COLUMN="question"
+PROMPT_COLUMN="prompt"
 BETA=0.01
-ITERATIONS=3
-BATCH_SAMPLING_PERCENTAGE=1
-MINI_BATCH_SIZE=2
-EPOCHS=2
-MAX_NEW_TOKENS=128
+ITERATIONS=10
+BATCH_SAMPLING_PERCENTAGE=0.02
+MINI_BATCH_SIZE=4
+EPOCHS=4
+MAX_NEW_TOKENS=1024
 GAMMA=0.98
 LAMBDA=0.9
 EPSILON=0.1
@@ -19,6 +19,7 @@ ENTROPY_LOSS_COEF=0.01
 FREQUENCY_OF_COMPLETION_LOGGING=1
 LOG_WANDB=True
 LR=0.000002
+MAX_INPUT_LEN=1024
 
 python src/main.py \
     --model_name "$MODEL_NAME" \
@@ -39,4 +40,5 @@ python src/main.py \
     --frequency_of_completion_logging "$FREQUENCY_OF_COMPLETION_LOGGING" \
     --beta "$BETA" \
     --log_wandb "$LOG_WANDB" \
-    --lr "$LR"
+    --lr "$LR" \
+    --max_input_len "$MAX_INPUT_LEN"
