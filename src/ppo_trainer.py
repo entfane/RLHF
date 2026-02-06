@@ -1,9 +1,8 @@
-from typing import List, Any, Optional, Dict
+from typing import List, Optional
 import torch
 import torch.nn.functional as F
 from datasets import Dataset
 import numpy as np
-from copy import deepcopy
 import wandb
 
 class PPOTrainer:
@@ -177,9 +176,9 @@ class PPOTrainer:
         _, T = tokenized_inputs.shape
         completions_only = self.tokenizer.batch_decode(completions[:, T:], skip_special_tokens = True)
         rewards = self.reward_model.get_reward(zip(batch, completions_only))
-        log_probs = self.get_completion_log_probs(self.policy, completions)
-        values = self.get_completion_values(self.policy, completions)
-        return (log_probs, rewards, values)
+        logits, _, values = self.policy(completions)
+        log_probs = F.log_softmax(logits, dim = -1)
+        return (log_probs, rewards, values.to("cuda"))
     
     def get_random_batch(self, dataset: Dataset, percentage: float) -> dict:
         """
