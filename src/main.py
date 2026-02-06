@@ -31,6 +31,7 @@ class RLHFArguments:
     wandb_run_name: Optional[str] = field(default = None, metadata={"help": "Wandb run name"})
     frequency_of_completion_logging: Optional[int] = field(default = "None", metadata={"help": "Frequency of completion logging. Measured in iterations"})
     max_input_len: Optional[int] = field(default = 128, metadata={"help": "Maximum length of input"})
+    lr: float = field(default = 1e-6, metadata={"help": "Learning rate"})
 
 
 if __name__ == "__main__":
@@ -51,5 +52,5 @@ if __name__ == "__main__":
                   epochs = args.epochs, max_new_tokens = args.max_new_tokens, prompt_col_name=args.prompt_column_name, beta = args.beta, gamma = args.gamma, lmbda = args.lmbda,
                   epsilon = args.epsilon, value_loss_coef = args.value_loss_coef, entropy_loss_coef = args.entropy_loss_coef, wandb_project = args.wandb_project,
                   wandb_run_name = args.wandb_run_name, frequency_of_completion_logging = args.frequency_of_completion_logging, log_wandb = args.log_wandb, 
-                  max_input_length=args.max_input_len)
+                  max_input_length = args.max_input_len, lr = args.lr)
     

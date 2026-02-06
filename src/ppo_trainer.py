@@ -283,7 +283,7 @@ class PPOTrainer:
               beta: float, gamma: float, lmbda: float, epsilon: float, value_loss_coef: float, entropy_loss_coef: float,
               wandb_project: Optional[str] = "rlhf-training", wandb_run_name: Optional[str] = None,
               frequency_of_completion_logging: Optional[int] = None, log_wandb: Optional[bool] = False,
-              max_input_length: Optional[int] = None):
+              max_input_length: Optional[int] = None, lr: float = 1e-6):
         
         """
         Main RLHF training loop
@@ -339,7 +339,8 @@ class PPOTrainer:
             wandb.watch(self.policy.pretrained_model, log="gradients", log_freq=100, log_graph=False)
             wandb.watch(self.policy.v_head, log="gradients", log_freq=100, log_graph=False)
 
-        optimizer = torch.optim.Adam(self.policy.parameters())
+        optimizer = torch.optim.Adam(self.policy.parameters(), lr=lr)
+        global_step = 0
 
         for iter in range(iterations):
 
@@ -359,7 +360,6 @@ class PPOTrainer:
                     "explained_variance": [],
                 }
 
-            global_step = 0
 
             # sample a batch of minibatches
             batch = self.get_random_batch(dataset, percentage=batch_sampling_percentage)[prompt_col_name]
@@ -498,18 +498,18 @@ class PPOTrainer:
                     
                         global_step += 1
 
-                        if (frequency_of_completion_logging is not None) and (iter % frequency_of_completion_logging == 0):
-                            sample_prompts = mini_batches[0][:3]
-                            sample_completions = rollouts[0][:3]
+                        # if (frequency_of_completion_logging is not None) and (iter % frequency_of_completion_logging == 0):
+                        #     sample_prompts = mini_batches[0][:3]
+                        #     sample_completions = rollouts[0][:3]
                             
-                            completion_table = wandb.Table(
-                                columns=["iteration", "prompt", "completion"],
-                                data=[
-                                    [iter, prompt, self.tokenizer.decode(completion)]
-                                    for prompt, completion in zip(sample_prompts, sample_completions)
-                                ]
-                            )
-                            wandb.log({f"samples/completions_iter_{iter}": completion_table}, step=global_step)
+                        #     completion_table = wandb.Table(
+                        #         columns=["iteration", "prompt", "completion"],
+                        #         data=[
+                        #             [iter, prompt, self.tokenizer.decode(completion)]
+                        #             for prompt, completion in zip(sample_prompts, sample_completions)
+                        #         ]
+                        #     )
+                        #     wandb.log({f"samples/completions_iter_{iter}": completion_table}, step=global_step)
                     del rollouts, mini_batch_output_masks, offline_log_probs, rewards, offline_values, offline_target_log_probs
                     del online_policy_log_probs, online_policy_target_log_probs, online_values, gae, likelihood_ratio, clipped_likelihood_ratio, kl_divergence, entropy_loss, returns, value_loss, total_loss
                     torch.cuda.empty_cache()

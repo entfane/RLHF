@@ -9,7 +9,7 @@ BETA=0.01
 ITERATIONS=3
 BATCH_SAMPLING_PERCENTAGE=1
 MINI_BATCH_SIZE=2
-EPOCHS=5
+EPOCHS=2
 MAX_NEW_TOKENS=128
 GAMMA=0.98
 LAMBDA=0.9
@@ -17,6 +17,8 @@ EPSILON=0.1
 VALUE_LOSS_COEF=0.5
 ENTROPY_LOSS_COEF=0.01
 FREQUENCY_OF_COMPLETION_LOGGING=1
+LOG_WANDB=True
+LR=0.000002
 
 python src/main.py \
     --model_name "$MODEL_NAME" \
@@ -35,4 +37,6 @@ python src/main.py \
     --value_loss_coef "$VALUE_LOSS_COEF" \
     --entropy_loss_coef "$ENTROPY_LOSS_COEF" \
     --frequency_of_completion_logging "$FREQUENCY_OF_COMPLETION_LOGGING" \
-    --beta "$BETA"
+    --beta "$BETA" \
+    --log_wandb "$LOG_WANDB" \
+    --lr "$LR"
