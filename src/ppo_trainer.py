@@ -2,8 +2,8 @@ from typing import List, Optional
 import torch
 import torch.nn.functional as F
 from datasets import Dataset
-import numpy as np
 import wandb
+from tqdm import tqdm
 
 class PPOTrainer:
 
@@ -372,7 +372,7 @@ class PPOTrainer:
             batches_offline_values = []
             batches_offline_target_log_probs = []
             with torch.no_grad():
-                for mini_batch in mini_batches:
+                for mini_batch in tqdm(mini_batches, desc="Performing Rollouts"):
                     chat_formatted_mini_batch = self.create_chat_batch_from_prompts(mini_batch, max_input_length = max_input_length)
                     rollouts = self.rollout(chat_formatted_mini_batch, max_new_tokens=max_new_tokens).detach()
                     mini_batch_output_masks = self._get_output_only_mask(chat_formatted_mini_batch, rollouts).detach()
